@@ -1,0 +1,44 @@
+name: CodeQL
+
+# CodeQL による first-party コードの静的解析（SAST）。Public リポジトリは無料。
+# Rust は 2025-10 に GA（ビルド不要で解析）。Windows 専用コード（cfg(windows) の
+# shredy-sys 等）を解析対象に含めるため windows ランナーで実行する。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 週次フルスキャン（月曜 03:23 UTC）。新規 advisory・クエリ更新の取りこぼし防止。
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (Rust)
+    runs-on: windows-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml (1.97.0) を解決できるようツールチェーンを用意する。
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.0"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: rust
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:rust"
