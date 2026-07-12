@@ -1,0 +1,65 @@
+[package]
+name = "shredy-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core engine for Shredy: scan, hash compare, grouping, selection, deletion."
+
+[dependencies]
+shredy-sys = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bitflags = { workspace = true }
+walkdir = { workspace = true }
+blake3 = { workspace = true }
+sha2 = { workspace = true }
+xxhash-rust = { workspace = true }
+rayon = { workspace = true }
+trash = { workspace = true }
+zip = { workspace = true }
+quick-xml = { workspace = true }
+cfb = { workspace = true }
+calamine = { workspace = true }
+image = { workspace = true }
+# HEIC/HEIF デコード (§3.12)。`heic` feature（既定 on）で取り込み。AGPL/商用デュアルのため
+# 個人利用・非配布前提（deny.toml 例外参照）。--no-default-features でビルドから除外可能。
+heic = { workspace = true, optional = true }
+img-parts = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+unicode-normalization = { workspace = true }
+unicase = { workspace = true }
+dunce = { workspace = true }
+# 一括リネーム (§3.10.1)。正規表現置換 / URL デコード / EXIF・日時整形。
+regex = { workspace = true }
+percent-encoding = { workspace = true }
+chrono = { workspace = true }
+kamadak_exif = { workspace = true }
+
+[features]
+# 既定で HEIC/HEIF デコードを有効化する。実行ファイルサイズを抑えたい場合や AGPL を
+# 避けたい場合は `--no-default-features` でビルドから除外できる（その場合 heic/heif は
+# 画像類似度 S8 の対象外となり、走査時にスキップされる）。
+default = ["heic"]
+heic = ["dep:heic"]
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+criterion = { workspace = true }
+
+
+[[bench]]
+name = "hash_bench"
+harness = false
+
+[[bench]]
+name = "select_bench"
+harness = false
+
+[[bench]]
+name = "compare_bench"
+harness = false

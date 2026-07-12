@@ -1,0 +1,98 @@
+name: CI
+
+# Shredy は Windows 11 (x64) 専用（ごみ箱・\\?\ ロングパス・リパースポイント判定等の
+# Windows API に依存）のため、CI も windows ランナーで実行する。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    name: Build, Lint, Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml の channel (1.97.0) と clippy/rustfmt を採用。
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.0"
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy (warnings as errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build (release)
+        run: cargo build --workspace --release
+
+  coverage:
+    name: Coverage (shredy-core >= 80%)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.0"
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # cargo-llvm-cov はプレビルドを取得（コンパイル不要）。
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      # コアエンジン（shredy-core）の行カバレッジ 80% を下限とする。
+      # GUI/CLI はイベントループ・結線が主でユニット計測対象外（§J）。
+      - name: Coverage (shredy-core, fail under 80% lines)
+        run: cargo llvm-cov -p shredy-core --fail-under-lines 80
+
+  # 依存監査（cargo-deny / cargo-audit）は Cargo.lock と advisory/ライセンス DB を
+  # 検査するもので、Windows 固有コードをコンパイルしない＝ホスト OS 非依存。
+  # 使用アクションは Docker コンテナアクション（Linux 専用）のため ubuntu で実行する。
+  security-audit:
+    name: Security Audit (deny / audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.0"
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # 依存の脆弱性・ライセンス・重複・ソースを deny.toml に基づき検査。
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+      # RustSec advisory DB に対する脆弱性スキャン（設定は .cargo/audit.toml）。
+      # check-run API とコンテナアクションへの依存を避け、直接実行に統一する
+      # （権限・OS 依存の環境問題を排除）。脆弱性検出時のみ非 0 終了で失敗する。
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: cargo-audit
+        run: cargo audit

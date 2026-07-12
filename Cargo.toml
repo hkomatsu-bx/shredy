@@ -1,0 +1,120 @@
+# Shredy — Cargo workspace
+# 3 crate 構成（設計 Q1=B）: shredy-sys → shredy-core → shredy-cli
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/shredy-sys",
+    "crates/shredy-core",
+    "crates/shredy-cli",
+    "crates/shredy-gui",
+]
+
+[workspace.package]
+# MAJOR.MINOR.REVISION を管理する。表示用フルバージョンは MAJOR.MINOR.REVISION.BUILDNUMBER で、
+# BUILDNUMBER は shredy-core/build.rs が git コミット数から自動採番する
+# （MAJOR.MINOR.REVISION はこの version 値がそのまま表示に使われる）。
+version = "1.0.3"
+edition = "2021"
+rust-version = "1.97"
+# 本体ライセンス。GUI の Slint（GPL-3.0 or 商用）と画像の heic（AGPL-3.0 or 商用）を
+# それぞれ GPL/AGPL オプションで利用するため、本体も GPL-3.0 で配布する（詳細は LICENSE
+# / THIRD-PARTY-LICENSES.md 参照）。
+license = "GPL-3.0-only"
+
+# 共有依存（各 crate から workspace = true で参照）
+[workspace.dependencies]
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bitflags = "2"
+walkdir = "2"
+blake3 = "1"
+sha2 = "0.11"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+rayon = "1"
+# Office 類似度 (S7) — すべて純 Rust（xcopy 配布適合）
+zip = { version = "8", default-features = false, features = ["deflate"] }
+quick-xml = "0.41"
+cfb = "0.14"
+calamine = { version = "0.36", default-features = false }
+# 画像類似度 (S8) — 純 Rust コーデック（xcopy 配布適合）。
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "gif", "tiff", "webp"] }
+# HEIC/HEIF デコード (§3.12) — 純 Rust（C 依存ゼロ・xcopy 適合）。default features=std で HEVC 復号。
+# ライセンスは AGPL-3.0 / Imazen 商用のデュアル。本体 GPL-3.0 配布のもと AGPL オプションで利用する
+# （AGPL-3.0 は GPLv3 §13 で GPL-3.0 と結合可・ソース開示義務は GPL 公開で充足。deny.toml の
+# licenses.exceptions 参照）。shredy-core の `heic` feature（既定 on）で取捨。
+heic = "0.1.6"
+# 画像メタデータ削除 (§3.10.3) — JPEG/PNG/WebP の EXIF をセグメント/チャンク単位で
+# 再エンコードなしに除去（純 Rust・xcopy 適合）。TIFF は EXIF が IFD 構造に内在するため非対応。
+img-parts = "0.4"
+trash = "5"
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "registry"] }
+tracing-appender = "0.2"
+unicode-normalization = "0.1"
+unicase = "2"
+dunce = "1"
+# 一括リネーム (§3.10.1) — すべて純 Rust（xcopy 配布適合）。
+# 正規表現置換ステップ。
+regex = { version = "1", default-features = false, features = ["std", "unicode"] }
+# URL デコードステップ（%XX 形式の復号）。
+percent-encoding = "2"
+# EXIF 抽出（EXIF 命名・将来プレビュー §3.5）。crate 名 `exif` は内部モジュール名と
+# 衝突するため `kamadak_exif` へ別名化。純 Rust・xcopy 適合。
+kamadak_exif = { package = "kamadak-exif", version = "0.6" }
+# 更新日時のローカル時刻整形（GUI 結果一覧, U12 M7）。純 Rust・xcopy 配布適合。
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# クリップボード（手動削除コマンドのコピー, U12 polish）。Windows は clipboard-win（純 Rust）。
+arboard = { version = "3", default-features = false }
+# テキストプレビューの文字コード解読（UTF-8 不正時に Shift-JIS フォールバック, polish3）。純 Rust。
+encoding_rs = "0.8"
+proptest = "1"
+tempfile = "3"
+criterion = "0.8"
+
+# GUI フロントエンド（U11）— 純 Rust・xcopy 配布適合。
+# 既定 backend-winit + femtovg renderer（OpenGL は OS 標準提供）。
+# Skia renderer（C/C++ 依存）は採用しない。slint と slint-build はバージョン同期必須。
+slint = "1"
+slint-build = "1"
+# exe リソースへアプリアイコン（icon.ico）を埋め込む（Windows のタスクバー/タイトルバー両対応）。
+# build-dependency のみ・実行時ランタイム不要で xcopy 配布適合。
+winresource = "0.1"
+# ネイティブフォルダ選択ダイアログ（Windows は COM ダイアログ。外部ランタイム不要で xcopy 適合）。
+rfd = "0.17"
+# `log` ファサード（依存が出力する log を捕捉・抑制するため。GUI のみで使用）。
+log = "0.4"
+# icu_provider の logging feature を有効化し、警告を log 経由（=フィルタ可能）にする。
+# 無効だと icu は直接 eprintln するためノイズを抑制できない（parley のテキストレイアウト経由）。
+icu_provider = { version = "2", features = ["logging"] }
+
+# 内部 crate
+shredy-sys = { path = "crates/shredy-sys" }
+# heic を任意化するため既定 feature を無効化して継承させる（cli/gui が各自の `heic`
+# feature で明示的に引き込む）。workspace 継承では member 側の default-features 指定は
+# 無視されるため、ここで指定する必要がある。
+shredy-core = { path = "crates/shredy-core", default-features = false }
+
+# release バイナリのサイズ削減（§X 追加要件）。
+# - strip          : シンボル除去（Windows MSVC では .pdb 別出力のため効果は限定的だが無害）
+# - lto = "fat"    : crate 横断の dead-code 除去
+# - codegen-units=1: 最適化単位を 1 本化し追加削減（ビルド並列度は低下）
+# - opt-level="s"  : サイズ優先。GUI(Slint) は opt=3+LTO だとインライン肥大で逆に増えるため
+#                    "s" を採用。ハッシュ/画像処理の性能劣化は criterion ベンチで検証する。
+# panic は既定 unwind を維持する（abort 不採用）。office/legacy.rs の `extract_xls` は
+# calamine の不正 .xls 内部 panic を `catch_unwind` で捕捉して Err 化＝クラッシュ回避しており、
+# abort 下ではこの安全装置が無効化されるため（安全優先思想・S7 Office 経路の堅牢性確保）。
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
+
+# ベンチは release と同じ opt-level で計測し、サイズ最適化による性能影響を可視化する。
+# lto/codegen-units は性能を更に押し上げる方向のため bench では省略（opt-s 単独＝保守的な下限）。
+[profile.bench]
+opt-level = "s"

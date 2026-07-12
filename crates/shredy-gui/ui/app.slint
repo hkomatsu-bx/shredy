@@ -1,0 +1,1938 @@
+// ルート Window とシェル（OS 標準枠 + セクション付きサイドバー）。設計 U12 M5。
+import { Palette, Button, ComboBox, LineEdit, ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { ListRow, FolderRow, UtilRow, ExifRow, Page, Icon, SettingsView, RenameStepRow, RenamePreviewRow, RecipeRow, DiffRow, DiffCols, FormatField } from "types.slint";
+import { DupSearchPage } from "dup_search.slint";
+import { UtilitySearchPage } from "util_search.slint";
+import { ExifStripPage } from "util_exif.slint";
+import { BulkRenamePage } from "bulk_rename.slint";
+import { SettingsPage } from "settings.slint";
+
+// Rust から ListRow/FolderRow/UtilRow/SettingsView を参照できるよう再エクスポート。
+export { ListRow, FolderRow, UtilRow, Page, SettingsView, FormatField }
+
+// サイドバーのセクション見出し（折りたたみ時は呼び出し側で非表示）。
+component NavHeader inherits Text {
+    font-size: 11px;
+    font-weight: 600;
+    color: Theme.text_tertiary;
+    vertical-alignment: center;
+    height: 26px;
+}
+
+// サイドバーのナビゲーション項目（アイコングリフ＋ラベル、アクティブ左アクセントバー）。
+component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> collapsed;
+    callback clicked();
+
+    height: 40px;
+    border-radius: Theme.radius_ctrl;
+    background: root.selected || ta.has-hover ? Theme.hover_bg : transparent;
+
+    accessible-role: button;
+    accessible-label: root.label;
+
+    // アクティブ左アクセントバー。
+    Rectangle {
+        x: 0;
+        y: (parent.height - 16px) / 2;
+        width: 3px;
+        height: 16px;
+        border-radius: 2px;
+        background: Theme.accent;
+        visible: root.selected;
+    }
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        spacing: 14px;
+        alignment: start;
+        Icon {
+            source: root.icon;
+            tint: root.selected ? Theme.accent : Theme.text_secondary;
+            size: 18px;
+        }
+        if !root.collapsed: Text {
+            text: root.label;
+            vertical-alignment: center;
+            color: Theme.fg;
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Shredy";
+    // タイトルバー・タスクバー用ウィンドウアイコン（§3.7#2。exe リソース埋込は build.rs、
+    // winit ウィンドウには Window.icon で別途設定が必要。ico は直接参照不可のため PNG 抽出版）
+    icon: @image-url("icons/icon.png");
+    preferred-width: 1100px;
+    preferred-height: 700px;
+    min-width: 760px;
+    min-height: 480px;
+    background: Theme.win_bg;
+
+    // 結果・状態（Rust から供給）。平坦化済みの結果行（ヘッダ＋ファイル, U12 perf）。
+    in property <[ListRow]> rows;
+    in property <[FolderRow]> target_folders;
+    in property <int> checked_count: 0;
+    in property <bool> is_searching: false;
+    in property <string> status_text: "待機中";
+    in property <string> config_summary: ""; // 旧ステータス表示（互換・未使用）
+    in-out property <int> highlighted_group: -1;
+    in-out property <int> highlighted_file: -1;
+    in-out property <Page> active_page: Page.DupSearch;
+
+    // ステータスバー（U12 M5）。app_version は main.rs が起動時に shredy_core::version()
+    // から設定する（ここの既定値はビルド前のプレースホルダ）。
+    in property <string> app_version: "";
+    in property <bool> confirm_on: true;
+    in property <bool> cache_on: true;
+    in property <bool> log_on: true;
+
+    // サマリ・選択サマリ・アクションバー（U12 M6）。
+    in property <int> summary_groups: 0;
+    in property <int> summary_files: 0;
+    in property <string> summary_potential: "0 B";
+    in property <bool> recycle_on: true;
+    in property <string> compare_method_label: "ハッシュ (BLAKE3)";
+    in property <int> compare_method_index: 0;
+    in property <string> keep_rule_label: "更新日（最新）を保持";
+    in property <int> filter_mode: 0; // 0=なし / 1=選択済みのみ / 2=未選択のみ
+    in property <string> selection_info: "";
+    in property <int> folders_checked: 0;
+
+    // サイドバー開閉（ハンバーガー）。
+    in-out property <bool> sidebar_collapsed: false;
+
+    // 行ホバー時のツールチップ（完全なファイル名・フォルダパス, polish3 指摘）。
+    in-out property <string> tip_text: "";
+    in-out property <bool> tip_visible: false;
+    in-out property <length> tip_x: 0;
+    in-out property <length> tip_y: 0;
+
+    // オプション設定（§3.8）。settings は Rust（view::settings_view）が AppConfig から設定する。
+    // 表示はダイアログ（todo §3.7#1。フォルダ比較と同型のオーバーレイ）。
+    in property <SettingsView> settings;
+    in-out property <bool> show_settings_dialog: false;
+    callback set_setting_bool(string, bool);
+    callback set_setting_int(string, int);
+    callback set_setting_text(string, string);
+    // 設定を既定値へ戻す（確認ダイアログ経由）。実処理は wiring::settings で結線。
+    in-out property <bool> show_reset_confirm_dialog: false;
+    callback reset_settings();
+
+    // 外観テーマ（§3.8）。0=System / 1=Light / 2=Dark。Rust が config から設定する。
+    in-out property <int> theme_mode: 0;
+    function apply_theme() {
+        if (root.theme_mode == 1) {
+            Palette.color-scheme = ColorScheme.light;
+        } else if (root.theme_mode == 2) {
+            Palette.color-scheme = ColorScheme.dark;
+        } else {
+            // System: OS の配色に追従（明示指定を解除）。
+            Palette.color-scheme = ColorScheme.unknown;
+        }
+    }
+    init => {
+        root.apply_theme();
+    }
+    changed theme_mode => {
+        root.apply_theme();
+    }
+    // ページ遷移でユーティリティ結果をクリアする（前ページの結果が残らないように, B-M3）。
+    changed active_page => {
+        root.util_reset();
+        root.exif_reset();
+    }
+
+    // 削除確認ダイアログ（§3.6）。
+    in-out property <bool> show_delete_dialog: false;
+    in property <string> delete_dialog_text: "";
+
+    // ナビゲーションガード（検索結果保持中の遷移時に破棄確認, 設計 §2.3）。
+    in property <bool> has_results: false;
+    in-out property <bool> show_discard_dialog: false;
+    in-out property <Page> pending_page: Page.DupSearch;
+
+    // アクション（Rust が結線）。
+    callback scan_clicked();
+    callback cancel_clicked();
+    callback clear_selection();
+    callback select_all();
+    callback request_delete();
+    callback confirm_delete();
+    callback cancel_delete();
+    // 結果破棄（ナビゲーションガードで「破棄して移動」時）。
+    callback discard_results();
+    callback toggle_check(int, int);
+    callback row_clicked(int, int);
+    callback row_double_clicked(int, int);
+    callback open_in_explorer(int, int);
+    // コンテキストメニュー（§3.5a）。
+    callback toggle_lock(int, int);
+    callback select_direct_cb(string, bool);
+    callback select_tree_cb(string, bool);
+    callback select_pattern_cb(string);
+    // 起点フォルダの親パス算出（↑ ボタン, §3.5a）。Rust 実装。
+    pure callback parent_path(string) -> string;
+    // 対象フォルダ管理（§5 TargetFolders）。
+    callback add_folder();
+    callback remove_folder(int);
+    callback toggle_folder(int);
+    callback check_all_folders();
+    callback uncheck_all_folders();
+    callback remove_all_folders();
+    // アクションバー（U12 M6）。
+    callback set_compare_method(int);
+    callback set_filter(int);
+    // その他サブメニュー・一括ロック・コンテキスト拡充（U12 M8a）。
+    callback lock_all();
+    callback unlock_all();
+    callback lock_pattern_cb(string);
+    callback lock_direct_cb(string, bool);
+    callback lock_tree_cb(string, bool);
+    callback preview_toggle();
+    callback notify_unimplemented(string);
+    callback recheck();
+    callback save_result();
+    callback review();
+
+    // プレビューパネル（§3.5 / U12 polish）。
+    in-out property <bool> preview_open: false;
+    in property <int> preview_kind: 2; // 0=画像 / 1=テキスト / 2=非対応(関連付け)
+    in property <image> preview_image;
+    in property <string> preview_text: "";
+    in property <string> preview_name: "";
+    in-out property <int> preview_rotation: 0;
+    in property <string> preview_ext: "";
+    // 画像 EXIF 情報（§3.1#1）。Rust（load_preview）が画像プレビュー時に設定する。
+    in property <string> preview_exif_datetime: "";
+    in property <string> preview_exif_camera: "";
+    in property <string> preview_exif_lens: "";
+    in property <string> preview_exif_gps: "";
+    in property <[FormatField]> preview_format_meta;
+    callback preview_rotate();
+    callback preview_open_with();
+    callback preview_show_folder();
+
+    // ワイルドカード選択/ロックダイアログ（U12 M8a）。
+    in-out property <bool> show_pattern_dialog: false;
+    in-out property <string> pattern_text: "*\\Backup\\*";
+
+    // 移動ダイアログ（U12 M8b）。
+    in-out property <bool> show_move_dialog: false;
+    in-out property <string> move_dest: "D:\\整理済み";
+    callback confirm_move();
+    callback browse_move_dest();
+
+    // 手動削除ダイアログ（§3.6a / U12 M8b）。
+    in-out property <bool> show_manual_dialog: false;
+    in property <int> manual_mode: 0; // 0=ごみ箱 / 1=完全削除 / 2=移動
+    in property <string> manual_list_path: "";
+    in property <string> manual_command: "";
+    in-out property <bool> manual_copied: false;
+    callback request_manual();
+    callback set_manual_mode(int);
+    callback open_manual_location();
+    callback copy_manual();
+
+    // ── フォルダ比較（§3.7） ──
+    in-out property <bool> show_folder_diff_dialog: false;
+    in-out property <string> folder_diff_a: "";
+    in-out property <string> folder_diff_b: "";
+    in property <bool> folder_diff_comparing: false;
+    in-out property <int> folder_diff_filter: 0;
+    in property <[DiffRow]> folder_diff_rows;
+    in property <string> folder_diff_status: "";
+    callback folder_diff_select_a();
+    callback folder_diff_select_b();
+    callback folder_diff_compare();
+    callback folder_diff_cancel();
+    callback folder_diff_filter_changed(int);
+
+    // ── ユーティリティスキャン（§3.9, B-M3） ──
+    in property <[UtilRow]> util_rows;
+    in property <int> util_found_count: 0;
+    in property <int> util_checked_count: 0;
+    in property <string> util_total_size: "0 B";
+    in property <string> util_selected_size: "0 B";
+    in-out property <int> util_highlighted: -1;
+    // ナビゲーションガード用：ユーティリティ結果保持中フラグ。
+    in property <bool> util_has_results: false;
+    callback util_scan();
+    callback util_select_all();
+    callback util_clear_selection();
+    callback util_check_toggled(int);
+    callback util_row_clicked(int);
+    callback util_open_explorer(int);
+    callback util_reset();
+    // コンテキストメニュー（起点フォルダ基準の選択/ロック, §3.4）。
+    callback util_select_direct(string, bool);
+    callback util_select_tree(string, bool);
+    callback util_lock_one(int);
+    callback util_lock_direct(string, bool);
+    callback util_lock_tree(string, bool);
+    callback util_unlock_all();
+    // 削除確認ダイアログ（ユーティリティ専用）。
+    in-out property <bool> show_util_delete_dialog: false;
+    in property <string> util_delete_text: "";
+    callback util_request_delete();
+    callback util_confirm_delete();
+    callback util_cancel_delete();
+    // 隔離移動ダイアログ（破損ファイル §3.9.4 既定アクション）。
+    in-out property <bool> show_util_quarantine_dialog: false;
+    in-out property <string> util_quarantine_dest: "D:\\隔離";
+    callback util_request_quarantine();
+    callback util_confirm_quarantine();
+    callback util_browse_quarantine();
+
+    // ── 画像メタデータ除去（§3.10.3・EXIF・整理） ──
+    in property <[ExifRow]> exif_rows;
+    in property <int> exif_found_count: 0;
+    in property <int> exif_checked_count: 0;
+    in property <bool> exif_backup: false;
+    callback exif_scan();
+    callback exif_select_all();
+    callback exif_clear_selection();
+    callback exif_check_toggled(int);
+    callback exif_set_backup(bool);
+    callback exif_request_strip();
+    callback exif_reset();
+
+    // ── 一括リネーム（§3.10.1, C-M3/C-M4・インライン編集モデル） ──
+    in property <string> rename_root: "（未選択）";
+    in property <[RenameStepRow]> rename_steps;
+    in property <int> rename_sel: -1; // 選択中ステップ index（-1=なし）
+    in property <[RenamePreviewRow]> rename_rows;
+    in property <int> rename_total_count: 0;
+    in property <int> rename_changed_count: 0;
+    in property <int> rename_conflict_count: 0;
+    in property <int> rename_undo_depth: 0; // Undo スタック深さ（バッジ表示）
+    in property <[RecipeRow]> recipe_rows;
+    // プレビュー計算中（反映中インジケータ）と「変更のみ」表示フィルタ。
+    in property <bool> rename_previewing: false;
+    in-out property <bool> rename_show_changed_only: false;
+    // 選択中ステップの編集フォーム値（Rust が decompose で設定・コントロールと双方向束縛。
+    // LineEdit のユーザー編集は宣言束縛を破棄するため in-out + <=> で常時同期する）。
+    in property <int> rename_edit_method: -1;
+    in-out property <string> rename_edit_t1: "";
+    in-out property <string> rename_edit_t2: "";
+    in-out property <int> rename_edit_n1: 3;
+    in-out property <int> rename_edit_n2: 1;
+    in-out property <int> rename_edit_fmt: 0;
+    in-out property <int> rename_edit_pos: 1;
+    in-out property <int> rename_edit_target: 1;
+    in-out property <int> rename_edit_conv: 1;
+    in property <bool> rename_edit_uses_date: false;
+    in property <bool> rename_edit_uses_seq: false;
+    // オプション（page と双方向束縛。Rust が rename_preview/apply 時に getter で読む）。
+    in-out property <bool> rename_include_subfolders: false;
+    in-out property <bool> rename_include_folders: false;
+    in-out property <string> rename_filter: "";
+    in-out property <int> rename_mode: 0; // 0=リネーム / 1=コピー＆ / 2=移動＆
+    in-out property <string> rename_dest: "";
+    callback rename_pick_folder();
+    callback rename_browse_dest();
+    callback rename_add_step(); // 既定（連番）を追加して選択
+    callback rename_select_step(int);
+    callback rename_set_method(int); // カテゴリ/方式チップ＝選択中を新方式の既定へ
+    // 編集フォーム変更（無引数。値は two-way 束縛済みの rename_edit_* を Rust が読む）。
+    callback rename_edit_changed();
+    callback rename_remove_step(int);
+    callback rename_move_step(int, bool);
+    callback rename_toggle_step(int);
+    callback rename_clear_steps();
+    callback rename_apply();
+    callback rename_undo();
+    // オプション変更通知（プレビューは自動再計算＝明示ボタンなし）。
+    callback rename_options_changed();
+    // 表示フィルタ切替（変更のみ。計画は不変・行のみ再構築）。
+    callback rename_filter_toggled();
+    // プレビュー行の保存フォルダを開く（引数＝行の通し番号 num）。
+    callback rename_open_entry(int);
+    // レシピ保存/呼出/削除（C-M4）。
+    callback recipe_save(string);
+    callback recipe_load(string);
+    callback recipe_delete(string);
+
+    // プレースホルダページの見出し文言。Page enum に variant を追加したら本関数も更新すること
+    // （Slint の if 連鎖は網羅性チェックがないため）。
+    pure function page-title(p: Page) -> string {
+        if (p == Page.UtilEmpty) {
+            return "空ファイル・フォルダ";
+        }
+        if (p == Page.UtilTemp) {
+            return "一時ファイル";
+        }
+        if (p == Page.UtilLarge) {
+            return "大容量ファイル";
+        }
+        if (p == Page.UtilCorrupt) {
+            return "破損ファイル";
+        }
+        if (p == Page.UtilExt) {
+            return "拡張子不正";
+        }
+        if (p == Page.UtilSymlink) {
+            return "無効シンボリックリンク";
+        }
+        if (p == Page.UtilThumbnail) {
+            return "サムネイルキャッシュ削除";
+        }
+        if (p == Page.UtilExifStrip) {
+            return "画像メタデータ除去 (EXIF)";
+        }
+        if (p == Page.BulkRename) {
+            return "一括リネーム";
+        }
+        return "重複ファイル検索";
+    }
+
+    // ページがユーティリティ結果を保持するページか（破棄ガード判定用＝検出 6 種＋サムネ削除）。
+    pure function is-util-page(p: Page) -> bool {
+        return p == Page.UtilEmpty || p == Page.UtilTemp || p == Page.UtilLarge
+            || p == Page.UtilCorrupt || p == Page.UtilExt || p == Page.UtilSymlink
+            || p == Page.UtilThumbnail;
+    }
+
+    // ページ遷移（検索中・同一・破棄確認中は抑止、結果保持中は破棄確認を挟む, 設計 §2.3）。
+    // 重複検索・ユーティリティのいずれも、結果を保持したまま離れるときは破棄確認を出す。
+    function navigate-to(target: Page) {
+        if (root.is_searching || target == root.active_page || root.show_discard_dialog) {
+            return;
+        }
+        if ((root.has_results && root.active_page == Page.DupSearch)
+            || (root.util_has_results && root.is-util-page(root.active_page))) {
+            root.pending_page = target;
+            root.show_discard_dialog = true;
+        } else {
+            root.active_page = target;
+        }
+    }
+
+    HorizontalLayout {
+        // ── 左サイドバー（セクション付きナビ） ──
+        Rectangle {
+            width: root.sidebar_collapsed ? Theme.sidebar_w_compact : Theme.sidebar_w;
+            background: Theme.win_bg;
+            animate width { duration: 120ms; easing: ease-out; }
+
+            // alignment は既定（stretch）。途中の vertical-stretch スペーサで
+            // 設定・バージョンのフッターを最下部へ押し下げる（polish3 item4）。
+            VerticalLayout {
+                padding: 4px;
+                spacing: 2px;
+
+                // ハンバーガー（サイドバー開閉）。
+                NavItem {
+                    icon: @image-url("icons/menu.svg");
+                    label: "メニュー";
+                    collapsed: root.sidebar_collapsed;
+                    clicked => {
+                        root.sidebar_collapsed = !root.sidebar_collapsed;
+                    }
+                }
+
+                if !root.sidebar_collapsed: NavHeader {
+                    text: "重複検索";
+                }
+                NavItem {
+                    icon: @image-url("icons/search.svg");
+                    label: "重複ファイル検索";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.DupSearch;
+                    clicked => {
+                        root.navigate-to(Page.DupSearch);
+                    }
+                }
+
+                if !root.sidebar_collapsed: NavHeader {
+                    text: "ユーティリティ（検出）";
+                }
+                NavItem {
+                    icon: @image-url("icons/folder.svg");
+                    label: "空ファイル・フォルダ";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilEmpty;
+                    clicked => {
+                        root.navigate-to(Page.UtilEmpty);
+                    }
+                }
+                NavItem {
+                    icon: @image-url("icons/clock.svg");
+                    label: "一時ファイル";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilTemp;
+                    clicked => {
+                        root.navigate-to(Page.UtilTemp);
+                    }
+                }
+                NavItem {
+                    icon: @image-url("icons/archive.svg");
+                    label: "大容量ファイル";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilLarge;
+                    clicked => {
+                        root.navigate-to(Page.UtilLarge);
+                    }
+                }
+                NavItem {
+                    icon: @image-url("icons/warning.svg");
+                    label: "破損ファイル";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilCorrupt;
+                    clicked => {
+                        root.navigate-to(Page.UtilCorrupt);
+                    }
+                }
+                NavItem {
+                    icon: @image-url("icons/tag.svg");
+                    label: "拡張子不正";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilExt;
+                    clicked => {
+                        root.navigate-to(Page.UtilExt);
+                    }
+                }
+                NavItem {
+                    icon: @image-url("icons/link.svg");
+                    label: "無効シンボリックリンク";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilSymlink;
+                    clicked => {
+                        root.navigate-to(Page.UtilSymlink);
+                    }
+                }
+
+                if !root.sidebar_collapsed: NavHeader {
+                    text: "ユーティリティ（整理）";
+                }
+                NavItem {
+                    icon: @image-url("icons/edit.svg");
+                    label: "一括リネーム";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.BulkRename;
+                    clicked => {
+                        root.navigate-to(Page.BulkRename);
+                    }
+                }
+                NavItem {
+                    icon: @image-url("icons/archive.svg");
+                    label: "サムネイルキャッシュ削除";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilThumbnail;
+                    clicked => {
+                        root.navigate-to(Page.UtilThumbnail);
+                    }
+                }
+                NavItem {
+                    icon: @image-url("icons/tag.svg");
+                    label: "画像メタデータ除去";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.active_page == Page.UtilExifStrip;
+                    clicked => {
+                        root.navigate-to(Page.UtilExifStrip);
+                    }
+                }
+
+                // フッター（設定）を下端へ。
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+                NavItem {
+                    icon: @image-url("icons/gear.svg");
+                    label: "設定";
+                    collapsed: root.sidebar_collapsed;
+                    selected: root.show_settings_dialog;
+                    clicked => {
+                        // ダイアログ表示（§3.7#1）。ページ遷移しないため結果は保持される。
+                        // 検索中の設定変更は結果と整合しないため従来どおり抑止。
+                        if (!root.is_searching) {
+                            root.show_settings_dialog = true;
+                        }
+                    }
+                }
+                // バージョン表記（サイドバー最下部, 不具合G）。
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-top: 2px;
+                    padding-bottom: 6px;
+                    spacing: 6px;
+                    alignment: start;
+                    Icon {
+                        source: @image-url("icons/info.svg");
+                        tint: Theme.text_tertiary;
+                        size: 13px;
+                    }
+                    if !root.sidebar_collapsed: Text {
+                        text: "Shredy " + root.app_version;
+                        vertical-alignment: center;
+                        font-size: 11px;
+                        color: Theme.text_tertiary;
+                    }
+                }
+            }
+        }
+
+        // ── コンテンツ + ステータスバー ──
+        VerticalLayout {
+            if root.active_page == Page.DupSearch: DupSearchPage {
+                vertical-stretch: 1;
+                rows: root.rows;
+                target_folders: root.target_folders;
+                checked_count: root.checked_count;
+                is_searching: root.is_searching;
+                status_text: root.status_text;
+                summary_groups: root.summary_groups;
+                summary_files: root.summary_files;
+                summary_potential: root.summary_potential;
+                recycle_on: root.recycle_on;
+                compare_method_label: root.compare_method_label;
+                compare_method_index: root.compare_method_index;
+                keep_rule_label: root.keep_rule_label;
+                filter_mode: root.filter_mode;
+                folders_checked: root.folders_checked;
+                preview_open: root.preview_open;
+                preview_kind: root.preview_kind;
+                preview_image: root.preview_image;
+                preview_text: root.preview_text;
+                preview_name: root.preview_name;
+                preview_rotation: root.preview_rotation;
+                preview_ext: root.preview_ext;
+                preview_exif_datetime: root.preview_exif_datetime;
+                preview_exif_camera: root.preview_exif_camera;
+                preview_exif_lens: root.preview_exif_lens;
+                preview_exif_gps: root.preview_exif_gps;
+                preview_format_meta: root.preview_format_meta;
+                highlighted_group <=> root.highlighted_group;
+                highlighted_file <=> root.highlighted_file;
+                check_all_folders => {
+                    root.check_all_folders();
+                }
+                uncheck_all_folders => {
+                    root.uncheck_all_folders();
+                }
+                remove_all_folders => {
+                    root.remove_all_folders();
+                }
+                set_compare_method(i) => {
+                    root.set_compare_method(i);
+                }
+                set_filter(m) => {
+                    root.set_filter(m);
+                }
+                lock_all => {
+                    root.lock_all();
+                }
+                unlock_all => {
+                    root.unlock_all();
+                }
+                lock_direct_cb(o, inv) => {
+                    root.lock_direct_cb(o, inv);
+                }
+                lock_tree_cb(o, inv) => {
+                    root.lock_tree_cb(o, inv);
+                }
+                preview_toggle => {
+                    root.preview_toggle();
+                }
+                preview_rotate => {
+                    root.preview_rotate();
+                }
+                preview_open_with => {
+                    root.preview_open_with();
+                }
+                preview_show_folder => {
+                    root.preview_show_folder();
+                }
+                notify_unimplemented(l) => {
+                    if (l == "フォルダ比較") {
+                        root.show_folder_diff_dialog = true;
+                    } else {
+                        root.notify_unimplemented(l);
+                    }
+                }
+                open_pattern_dialog => {
+                    root.pattern_text = "*\\Backup\\*";
+                    root.show_pattern_dialog = true;
+                }
+                request_move => {
+                    root.show_move_dialog = true;
+                }
+                request_manual => {
+                    root.request_manual();
+                }
+                recheck => {
+                    root.recheck();
+                }
+                save_result => {
+                    root.save_result();
+                }
+                review => {
+                    root.review();
+                }
+                parent_path(p) => {
+                    root.parent_path(p)
+                }
+                request_tip(t, x, y) => {
+                    root.tip_text = t;
+                    root.tip_x = x;
+                    root.tip_y = y;
+                    root.tip_visible = true;
+                }
+                hide_tip => {
+                    root.tip_visible = false;
+                }
+                scan_clicked => {
+                    root.scan_clicked();
+                }
+                cancel_clicked => {
+                    root.cancel_clicked();
+                }
+                clear_selection => {
+                    root.clear_selection();
+                }
+                select_all => {
+                    root.select_all();
+                }
+                request_delete => {
+                    root.request_delete();
+                }
+                toggle_check(g, f) => {
+                    root.toggle_check(g, f);
+                }
+                row_clicked(g, f) => {
+                    root.row_clicked(g, f);
+                }
+                row_double_clicked(g, f) => {
+                    root.row_double_clicked(g, f);
+                }
+                open_in_explorer(g, f) => {
+                    root.open_in_explorer(g, f);
+                }
+                toggle_lock(g, f) => {
+                    root.toggle_lock(g, f);
+                }
+                select_direct_cb(o, inv) => {
+                    root.select_direct_cb(o, inv);
+                }
+                select_tree_cb(o, inv) => {
+                    root.select_tree_cb(o, inv);
+                }
+                select_pattern_cb(p) => {
+                    root.select_pattern_cb(p);
+                }
+                add_folder => {
+                    root.add_folder();
+                }
+                remove_folder(i) => {
+                    root.remove_folder(i);
+                }
+                toggle_folder(i) => {
+                    root.toggle_folder(i);
+                }
+            }
+            // ユーティリティページ（検出 §3.9 6 種＋整理 §3.10.4 サムネ削除）。共通コンポーネントを切替。
+            if root.active_page == Page.UtilEmpty
+                || root.active_page == Page.UtilTemp
+                || root.active_page == Page.UtilLarge
+                || root.active_page == Page.UtilCorrupt
+                || root.active_page == Page.UtilExt
+                || root.active_page == Page.UtilSymlink
+                || root.active_page == Page.UtilThumbnail: UtilitySearchPage {
+                vertical-stretch: 1;
+                title: root.page-title(root.active_page);
+                show_quarantine: root.active_page == Page.UtilCorrupt;
+                rows: root.util_rows;
+                target_folders: root.target_folders;
+                folders_checked: root.folders_checked;
+                is_searching: root.is_searching;
+                status_text: root.status_text;
+                found_count: root.util_found_count;
+                checked_count: root.util_checked_count;
+                total_size: root.util_total_size;
+                selected_size: root.util_selected_size;
+                recycle_on: root.recycle_on;
+                highlighted <=> root.util_highlighted;
+                scan_clicked => {
+                    root.util_scan();
+                }
+                cancel_clicked => {
+                    root.cancel_clicked();
+                }
+                select_all => {
+                    root.util_select_all();
+                }
+                clear_selection => {
+                    root.util_clear_selection();
+                }
+                request_delete => {
+                    root.util_request_delete();
+                }
+                request_quarantine => {
+                    root.util_request_quarantine();
+                }
+                row_clicked(i) => {
+                    root.util_row_clicked(i);
+                }
+                check_toggled(i) => {
+                    root.util_check_toggled(i);
+                }
+                open_explorer(i) => {
+                    root.util_open_explorer(i);
+                }
+                lock_one(i) => {
+                    root.util_lock_one(i);
+                }
+                select_direct(o, inv) => {
+                    root.util_select_direct(o, inv);
+                }
+                select_tree(o, inv) => {
+                    root.util_select_tree(o, inv);
+                }
+                lock_direct(o, inv) => {
+                    root.util_lock_direct(o, inv);
+                }
+                lock_tree(o, inv) => {
+                    root.util_lock_tree(o, inv);
+                }
+                unlock_all => {
+                    root.util_unlock_all();
+                }
+                parent_path(p) => {
+                    root.parent_path(p)
+                }
+                add_folder => {
+                    root.add_folder();
+                }
+                remove_folder(i) => {
+                    root.remove_folder(i);
+                }
+                toggle_folder(i) => {
+                    root.toggle_folder(i);
+                }
+                check_all_folders => {
+                    root.check_all_folders();
+                }
+                uncheck_all_folders => {
+                    root.uncheck_all_folders();
+                }
+                remove_all_folders => {
+                    root.remove_all_folders();
+                }
+            }
+            // ユーティリティ（整理）: 画像メタデータ除去（§3.10.3・EXIF・専用ページ）。
+            if root.active_page == Page.UtilExifStrip: ExifStripPage {
+                vertical-stretch: 1;
+                title: root.page-title(root.active_page);
+                rows: root.exif_rows;
+                target_folders: root.target_folders;
+                folders_checked: root.folders_checked;
+                is_searching: root.is_searching;
+                status_text: root.status_text;
+                found_count: root.exif_found_count;
+                checked_count: root.exif_checked_count;
+                backup_on: root.exif_backup;
+                scan_clicked => {
+                    root.exif_scan();
+                }
+                cancel_clicked => {
+                    root.cancel_clicked();
+                }
+                select_all => {
+                    root.exif_select_all();
+                }
+                clear_selection => {
+                    root.exif_clear_selection();
+                }
+                request_strip => {
+                    root.exif_request_strip();
+                }
+                set_backup(b) => {
+                    root.exif_set_backup(b);
+                }
+                check_toggled(i) => {
+                    root.exif_check_toggled(i);
+                }
+                add_folder => {
+                    root.add_folder();
+                }
+                remove_folder(i) => {
+                    root.remove_folder(i);
+                }
+                toggle_folder(i) => {
+                    root.toggle_folder(i);
+                }
+                check_all_folders => {
+                    root.check_all_folders();
+                }
+                uncheck_all_folders => {
+                    root.uncheck_all_folders();
+                }
+                remove_all_folders => {
+                    root.remove_all_folders();
+                }
+            }
+            // ユーティリティ（整理）: 一括リネーム（§3.10.1, C-M3/C-M4・インライン編集モデル）。
+            if root.active_page == Page.BulkRename: BulkRenamePage {
+                vertical-stretch: 1;
+                rename_root: root.rename_root;
+                steps: root.rename_steps;
+                sel_step: root.rename_sel;
+                rows: root.rename_rows;
+                total_count: root.rename_total_count;
+                changed_count: root.rename_changed_count;
+                conflict_count: root.rename_conflict_count;
+                undo_depth: root.rename_undo_depth;
+                is_searching: root.is_searching;
+                previewing: root.rename_previewing;
+                recipes: root.recipe_rows;
+                edit_method: root.rename_edit_method;
+                edit_t1 <=> root.rename_edit_t1;
+                edit_t2 <=> root.rename_edit_t2;
+                edit_n1 <=> root.rename_edit_n1;
+                edit_n2 <=> root.rename_edit_n2;
+                edit_fmt <=> root.rename_edit_fmt;
+                edit_pos <=> root.rename_edit_pos;
+                edit_target <=> root.rename_edit_target;
+                edit_conv <=> root.rename_edit_conv;
+                edit_uses_date: root.rename_edit_uses_date;
+                edit_uses_seq: root.rename_edit_uses_seq;
+                show_changed_only <=> root.rename_show_changed_only;
+                include_subfolders <=> root.rename_include_subfolders;
+                include_folders <=> root.rename_include_folders;
+                filter <=> root.rename_filter;
+                mode <=> root.rename_mode;
+                dest <=> root.rename_dest;
+                pick_folder => {
+                    root.rename_pick_folder();
+                }
+                browse_dest => {
+                    root.rename_browse_dest();
+                }
+                add_step => {
+                    root.rename_add_step();
+                }
+                select_step(i) => {
+                    root.rename_select_step(i);
+                }
+                set_method(m) => {
+                    root.rename_set_method(m);
+                }
+                edit_changed => {
+                    root.rename_edit_changed();
+                }
+                remove_step(i) => {
+                    root.rename_remove_step(i);
+                }
+                move_step(i, up) => {
+                    root.rename_move_step(i, up);
+                }
+                toggle_step(i) => {
+                    root.rename_toggle_step(i);
+                }
+                clear_steps => {
+                    root.rename_clear_steps();
+                }
+                apply => {
+                    root.rename_apply();
+                }
+                undo => {
+                    root.rename_undo();
+                }
+                options_changed => {
+                    root.rename_options_changed();
+                }
+                filter_toggled => {
+                    root.rename_filter_toggled();
+                }
+                open_entry(n) => {
+                    root.rename_open_entry(n);
+                }
+                request_tip(t, x, y) => {
+                    root.tip_text = t;
+                    root.tip_x = x;
+                    root.tip_y = y;
+                    root.tip_visible = true;
+                }
+                hide_tip => {
+                    root.tip_visible = false;
+                }
+                recipe_save(n) => {
+                    root.recipe_save(n);
+                }
+                recipe_load(n) => {
+                    root.recipe_load(n);
+                }
+                recipe_delete(n) => {
+                    root.recipe_delete(n);
+                }
+            }
+
+            // ステータスバー（U12 M5）。
+            Rectangle {
+                height: 28px;
+                background: Theme.win_bg;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 8px;
+                    // 左: 選択サマリ（無い間は処理状態テキスト, U12 M6。バージョンはサイドバー下部へ移設）。
+                    Text {
+                        text: root.selection_info != "" ? root.selection_info : root.status_text;
+                        vertical-alignment: center;
+                        horizontal-alignment: left;
+                        // 選択状況・状態テキストとも青字で強調（polish3 item5）。
+                        // Dark では明度を上げて背景との差を確保（§3.7 #4）。
+                        color: Theme.status_info;
+                        overflow: elide;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    // 右: 主要設定の ON/OFF。
+                    HorizontalLayout {
+                        padding-right: 14px;
+                        spacing: 14px;
+                        Text {
+                            text: "削除前確認: " + (root.confirm_on ? "ON" : "OFF");
+                            vertical-alignment: center;
+                            color: root.confirm_on ? Theme.text_secondary : Theme.danger;
+                        }
+                        Text {
+                            text: "キャッシュ: " + (root.cache_on ? "ON" : "OFF");
+                            vertical-alignment: center;
+                            color: root.cache_on ? Theme.text_secondary : Theme.danger;
+                        }
+                        Text {
+                            text: "ログ: " + (root.log_on ? "ON" : "OFF");
+                            vertical-alignment: center;
+                            color: root.log_on ? Theme.text_secondary : Theme.danger;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 削除確認ダイアログ（ContentDialog 相当のモーダルオーバーレイ, §3.6）。
+    if root.show_delete_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099; // 背景を暗転
+
+        // 背面クリックを吸収（誤操作防止）。
+        TouchArea { }
+
+        Rectangle {
+            width: min(420px, root.width - 48px);
+            height: dialog_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+
+            dialog_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                Text {
+                    text: "削除の確認";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: root.delete_dialog_text;
+                    wrap: word-wrap;
+                    color: Theme.fg;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "キャンセル";
+                        accessible-label: "削除をキャンセル";
+                        clicked => {
+                            root.cancel_delete();
+                        }
+                    }
+                    Button {
+                        text: "実行";
+                        primary: true;
+                        accessible-label: "削除を実行";
+                        clicked => {
+                            root.confirm_delete();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 結果破棄確認ダイアログ（ナビゲーションガード, 設計 §2.3）。
+    if root.show_discard_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099; // 背景を暗転
+
+        // 背面クリックを吸収（誤操作防止）。
+        TouchArea { }
+
+        Rectangle {
+            width: min(420px, root.width - 48px);
+            height: discard_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+
+            discard_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                Text {
+                    text: "検索結果の破棄";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: "現在の検索結果と選択は破棄されます。ページを移動しますか?";
+                    wrap: word-wrap;
+                    color: Theme.fg;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "キャンセル";
+                        accessible-label: "移動をキャンセル";
+                        clicked => {
+                            root.show_discard_dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "破棄して移動";
+                        primary: true;
+                        accessible-label: "結果を破棄して移動";
+                        clicked => {
+                            root.discard_results();
+                            root.active_page = root.pending_page;
+                            root.show_discard_dialog = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 設定を既定値へ戻す確認ダイアログ（設定UI再デザイン）。対象フォルダ・レシピ・上級設定は保持。
+    if root.show_reset_confirm_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099; // 背景を暗転
+
+        // 背面クリックを吸収（誤操作防止）。
+        TouchArea { }
+
+        Rectangle {
+            width: min(420px, root.width - 48px);
+            height: reset_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+
+            reset_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                Text {
+                    text: "設定を既定値に戻す";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: "設定項目を既定値に戻します。対象フォルダ・検出レシピ・詳細チューニングは保持されます。よろしいですか?";
+                    wrap: word-wrap;
+                    color: Theme.fg;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "キャンセル";
+                        accessible-label: "リセットをキャンセル";
+                        clicked => {
+                            root.show_reset_confirm_dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "既定値に戻す";
+                        primary: true;
+                        accessible-label: "設定を既定値に戻す";
+                        clicked => {
+                            root.reset_settings();
+                            root.show_reset_confirm_dialog = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ワイルドカード選択/ロックダイアログ（§3.4 / U12 M8a）。
+    if root.show_pattern_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+
+        Rectangle {
+            width: min(460px, root.width - 48px);
+            height: pattern_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+
+            pattern_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                Text {
+                    text: "ワイルドカード選択 / ロック";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: "ファイルパスに一致したファイルを削除選択またはロックします（例: *\\Backup\\* / *.JPG）。";
+                    wrap: word-wrap;
+                    color: Theme.text_secondary;
+                }
+                pattern_edit := LineEdit {
+                    text <=> root.pattern_text;
+                    placeholder-text: "ワイルドカードパターン";
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "キャンセル";
+                        clicked => {
+                            root.show_pattern_dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "ロック";
+                        accessible-label: "パターンでロック";
+                        clicked => {
+                            root.lock_pattern_cb(root.pattern_text);
+                            root.show_pattern_dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "選択";
+                        primary: true;
+                        accessible-label: "パターンで選択";
+                        clicked => {
+                            root.select_pattern_cb(root.pattern_text);
+                            root.show_pattern_dialog = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 選択ファイルを移動ダイアログ（§3.6 / U12 M8b）。
+    if root.show_move_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+
+        Rectangle {
+            width: min(480px, root.width - 48px);
+            height: move_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+
+            move_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                Text {
+                    text: "選択ファイルを移動";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: "選択した " + root.checked_count + " 件のファイルを移動先フォルダへ移動します（同名は自動リネーム）。";
+                    wrap: word-wrap;
+                    color: Theme.text_secondary;
+                }
+                Text {
+                    text: "移動先フォルダ";
+                    font-size: 12px;
+                    color: Theme.text_secondary;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        text <=> root.move_dest;
+                        placeholder-text: "移動先フォルダのパス";
+                    }
+                    Button {
+                        text: "参照…";
+                        clicked => {
+                            root.browse_move_dest();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "キャンセル";
+                        clicked => {
+                            root.show_move_dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "移動";
+                        primary: true;
+                        accessible-label: "選択ファイルを移動";
+                        clicked => {
+                            root.confirm_move();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 手動削除ダイアログ（§3.6a / U12 M8b）。
+    if root.show_manual_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+
+        Rectangle {
+            width: min(560px, root.width - 48px);
+            height: manual_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+
+            manual_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text {
+                    text: "手動削除（PowerShell）";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: "セキュリティソフトの誤検知対策として、Shredy 自身は削除せず PowerShell 用コマンドを生成します。選択パスをリストへ書き出しました。";
+                    wrap: word-wrap;
+                    color: Theme.text_secondary;
+                }
+                // モード切替（ごみ箱 / 完全削除 / 移動）。
+                HorizontalLayout {
+                    spacing: 6px;
+                    Button {
+                        text: "ごみ箱";
+                        primary: root.manual_mode == 0;
+                        clicked => {
+                            root.set_manual_mode(0);
+                        }
+                    }
+                    Button {
+                        text: "完全削除";
+                        primary: root.manual_mode == 1;
+                        clicked => {
+                            root.set_manual_mode(1);
+                        }
+                    }
+                    Button {
+                        text: "移動";
+                        primary: root.manual_mode == 2;
+                        clicked => {
+                            root.set_manual_mode(2);
+                        }
+                    }
+                }
+                Text {
+                    text: "リスト: " + root.manual_list_path;
+                    wrap: word-wrap;
+                    font-size: 11px;
+                    color: Theme.text_tertiary;
+                }
+                // 生成コマンド（読み取り専用・選択して Ctrl+C でコピー）。
+                LineEdit {
+                    read-only: true;
+                    text: root.manual_command;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "場所を開く";
+                        clicked => {
+                            root.open_manual_location();
+                        }
+                    }
+                    Button {
+                        text: root.manual_copied ? "コピーしました" : "コマンドをコピー";
+                        clicked => {
+                            root.copy_manual();
+                        }
+                    }
+                    Button {
+                        text: "閉じる";
+                        primary: true;
+                        clicked => {
+                            root.show_manual_dialog = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ユーティリティ削除確認ダイアログ（§3.9, B-M3）。
+    if root.show_util_delete_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+        Rectangle {
+            width: min(420px, root.width - 48px);
+            height: util_del_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+            util_del_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                Text {
+                    text: "削除の確認";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: root.util_delete_text;
+                    wrap: word-wrap;
+                    color: Theme.fg;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "キャンセル";
+                        clicked => {
+                            root.util_cancel_delete();
+                        }
+                    }
+                    Button {
+                        text: "実行";
+                        primary: true;
+                        clicked => {
+                            root.util_confirm_delete();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ユーティリティ隔離移動ダイアログ（破損ファイル §3.9.4, B-M3）。
+    if root.show_util_quarantine_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+        Rectangle {
+            width: min(480px, root.width - 48px);
+            height: util_qr_layout.preferred-height;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+            util_qr_layout := VerticalLayout {
+                padding: 20px;
+                spacing: 14px;
+                Text {
+                    text: "隔離フォルダへ移動";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: "選択した " + root.util_checked_count + " 件を隔離フォルダへ移動します（同名は自動リネーム）。";
+                    wrap: word-wrap;
+                    color: Theme.text_secondary;
+                }
+                Text {
+                    text: "隔離先フォルダ";
+                    font-size: 12px;
+                    color: Theme.text_secondary;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        text <=> root.util_quarantine_dest;
+                        placeholder-text: "隔離先フォルダのパス";
+                    }
+                    Button {
+                        text: "参照…";
+                        clicked => {
+                            root.util_browse_quarantine();
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "キャンセル";
+                        clicked => {
+                            root.show_util_quarantine_dialog = false;
+                        }
+                    }
+                    Button {
+                        text: "移動";
+                        primary: true;
+                        clicked => {
+                            root.util_confirm_quarantine();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // フォルダ比較ダイアログ（§3.7）。親ウィンドウいっぱいに表示。
+    if root.show_folder_diff_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+        Rectangle {
+            width: root.width - 32px;
+            height: root.height - 32px;
+            x: 16px;
+            y: 16px;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+            clip: true;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+
+                // タイトル行
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "フォルダ比較";
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: Theme.fg;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    // フラット × ボタン（FolderItem と同方式）。
+                    diff_close_btn := Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: Theme.radius_ctrl;
+                        background: diff_close_ta.has-hover && !root.folder_diff_comparing
+                            ? Theme.hover_bg : transparent;
+                        opacity: root.folder_diff_comparing ? 0.42 : 1.0;
+                        Icon {
+                            source: @image-url("icons/close.svg");
+                            tint: diff_close_ta.has-hover ? Theme.danger : Theme.text_secondary;
+                            size: 16px;
+                        }
+                        diff_close_ta := TouchArea {
+                            enabled: !root.folder_diff_comparing;
+                            clicked => {
+                                root.show_folder_diff_dialog = false;
+                            }
+                        }
+                    }
+                }
+
+                // フォルダ A/B・フィルタ行を 3 行グリッドで揃える。
+                // ラベル幅を統一し右寄せ → ":" が縦にそろう。LineEdit/ComboBox が同位置から開始。
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "A:";
+                        width: 60px;
+                        horizontal-alignment: right;
+                        font-weight: 600;
+                        color: Theme.accent;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        text <=> root.folder_diff_a;
+                        placeholder-text: "フォルダ A のパスを選択";
+                        read-only: root.folder_diff_comparing;
+                    }
+                    Button {
+                        text: "参照...";
+                        enabled: !root.folder_diff_comparing;
+                        clicked => {
+                            root.folder_diff_select_a();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "B:";
+                        width: 60px;
+                        horizontal-alignment: right;
+                        font-weight: 600;
+                        color: #e87c1e;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        horizontal-stretch: 1;
+                        text <=> root.folder_diff_b;
+                        placeholder-text: "フォルダ B のパスを選択";
+                        read-only: root.folder_diff_comparing;
+                    }
+                    Button {
+                        text: "参照...";
+                        enabled: !root.folder_diff_comparing;
+                        clicked => {
+                            root.folder_diff_select_b();
+                        }
+                    }
+                }
+
+                // フィルタ + 比較/中断ボタン
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "フィルタ:";
+                        width: 60px;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                        color: Theme.text_secondary;
+                    }
+                    ComboBox {
+                        model: ["全て", "A のみ", "B のみ", "共通", "サイズ差"];
+                        current-index <=> root.folder_diff_filter;
+                        enabled: !root.folder_diff_comparing;
+                        // 初期表示で分類列左端とドロップダウン右端を揃える固定幅。
+                        // DiffCols.path 初期値(450px) - 54px = 396px。
+                        width: 396px;
+                        selected(value) => {
+                            root.folder_diff_filter_changed(root.folder_diff_filter);
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: root.folder_diff_comparing ? "中断" : "比較";
+                        primary: !root.folder_diff_comparing;
+                        enabled: root.folder_diff_a != "" && root.folder_diff_b != "";
+                        clicked => {
+                            if (root.folder_diff_comparing) {
+                                root.folder_diff_cancel();
+                            } else {
+                                root.folder_diff_compare();
+                            }
+                        }
+                    }
+                }
+
+                // 列ヘッダ（リサイズ可）
+                diff_header := Rectangle {
+                    height: 26px;
+                    background: Palette.foreground.with_alpha(0.07);
+                    border-radius: 4px;
+                    min-width: 0px;
+                    HorizontalLayout {
+                        width: parent.width;
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 4px;
+                        Text {
+                            text: "相対パス";
+                            width: DiffCols.path;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.text_secondary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "分類";
+                            width: 76px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.text_secondary;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "A サイズ";
+                            width: 84px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.text_secondary;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                        Text {
+                            text: "B サイズ";
+                            width: 84px;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.text_secondary;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    // パス列右端のリサイズハンドル（dup_search と同方式）。
+                    // パス左端 = padding-left 8。パス右端 = 8 + DiffCols.path。
+                    diff_resize_ta := TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        property <length> path_edge: 8px + DiffCols.path;
+                        mouse-cursor: abs(self.mouse-x - self.path_edge) < 8px
+                            ? MouseCursor.col-resize : MouseCursor.default;
+                        property <bool> dragging: false;
+                        pointer-event(e) => {
+                            if (e.kind == PointerEventKind.down
+                                    && abs(self.mouse-x - self.path_edge) < 8px) {
+                                self.dragging = true;
+                            }
+                            if (e.kind == PointerEventKind.up) {
+                                self.dragging = false;
+                            }
+                        }
+                        moved => {
+                            if (self.dragging) {
+                                // 右固定列（分類76 + Aサイズ84 + Bサイズ84 + spacing3*4 + padding16 = 272px）を除いた残幅に収める。
+                                DiffCols.path = max(DiffCols.min, min(self.mouse-x - 8px,
+                                    self.width - 272px));
+                            }
+                        }
+                    }
+                }
+
+                // 結果一覧
+                ListView {
+                    vertical-stretch: 1;
+                    for row in root.folder_diff_rows: Rectangle {
+                        height: 28px;
+                        background: transparent;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
+                            Text {
+                                text: row.rel_path;
+                                width: DiffCols.path;
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: Theme.fg;
+                                overflow: elide;
+                            }
+                            // 分類バッジ
+                            Rectangle {
+                                width: 76px;
+                                border-radius: 4px;
+                                background: row.kind == 0 ? #0067c022
+                                          : row.kind == 1 ? #e87c1e22
+                                          : row.kind == 2 ? #1ea83c22
+                                          : #d4a81a22;
+                                Text {
+                                    width: parent.width;
+                                    text: row.kind == 0 ? "A のみ"
+                                        : row.kind == 1 ? "B のみ"
+                                        : row.kind == 2 ? "共通"
+                                        : "サイズ差";
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: row.kind == 0 ? #0067c0
+                                         : row.kind == 1 ? #e87c1e
+                                         : row.kind == 2 ? #1ea83c
+                                         : #d4a81a;
+                                }
+                            }
+                            Text {
+                                text: row.size_a == "" ? "—" : row.size_a;
+                                width: 84px;
+                                vertical-alignment: center;
+                                horizontal-alignment: right;
+                                font-size: 12px;
+                                color: row.size_a == "" ? Theme.text_tertiary : Theme.fg;
+                            }
+                            Text {
+                                text: row.size_b == "" ? "—" : row.size_b;
+                                width: 84px;
+                                vertical-alignment: center;
+                                horizontal-alignment: right;
+                                font-size: 12px;
+                                color: row.size_b == "" ? Theme.text_tertiary : Theme.fg;
+                            }
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+                        }
+                    }
+                }
+
+                // ステータス
+                Text {
+                    text: root.folder_diff_status;
+                    color: Theme.text_secondary;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+
+    // 設定ダイアログ（§3.8 / todo §3.7#1）。フォルダ比較ダイアログと同型のオーバーレイ。
+    // ページ遷移しないため、検索結果を保持したまま設定変更できる（破棄確認も不要）。
+    if root.show_settings_dialog: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+        Rectangle {
+            width: root.width - 32px;
+            height: root.height - 32px;
+            x: 16px;
+            y: 16px;
+            border-radius: Theme.radius_card;
+            background: Theme.layer2;
+            clip: true;
+            VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+
+                // タイトル行
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "設定";
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: Theme.fg;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    // フラット × ボタン（フォルダ比較ダイアログと同方式）。
+                    settings_close_btn := Rectangle {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: Theme.radius_ctrl;
+                        background: settings_close_ta.has-hover ? Theme.hover_bg : transparent;
+                        Icon {
+                            source: @image-url("icons/close.svg");
+                            tint: settings_close_ta.has-hover ? Theme.danger : Theme.text_secondary;
+                            size: 16px;
+                        }
+                        settings_close_ta := TouchArea {
+                            clicked => {
+                                root.show_settings_dialog = false;
+                            }
+                        }
+                    }
+                }
+
+                SettingsPage {
+                    vertical-stretch: 1;
+                    s: root.settings;
+                    set_bool(k, v) => {
+                        root.set_setting_bool(k, v);
+                    }
+                    set_int(k, v) => {
+                        root.set_setting_int(k, v);
+                    }
+                    set_text(k, v) => {
+                        root.set_setting_text(k, v);
+                    }
+                    reset_settings => {
+                        root.show_reset_confirm_dialog = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // 行ホバーのツールチップ（完全なファイル名・フォルダパス, polish3 指摘）。
+    // 非インタラクティブ（TouchArea なし）でクリックを妨げない。Window 直下で最前面に描画。
+    if root.tip_visible && root.tip_text != "": Rectangle {
+        x: min(root.tip_x + 12px, root.width - self.width - 8px);
+        y: min(root.tip_y + 20px, root.height - self.height - 8px);
+        width: min(tip_label.preferred-width + 16px, root.width - 24px);
+        height: tip_label.preferred-height + 12px;
+        background: Theme.layer2;
+        border-color: Theme.border_strong;
+        border-width: 1px;
+        border-radius: Theme.radius_ctrl;
+        tip_label := Text {
+            x: 8px;
+            y: 6px;
+            width: parent.width - 16px;
+            text: root.tip_text;
+            color: Theme.fg;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+}

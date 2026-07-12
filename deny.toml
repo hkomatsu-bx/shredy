@@ -1,0 +1,60 @@
+# cargo-deny 設定（SECURITY-10: サプライチェーン）
+# 詳細ポリシーは CI 整備時に拡充する。
+
+# 本プロジェクトは Windows 11 (x64) 専用（他 OS ではビルド・実行不可）。監査対象を実出荷ターゲットに
+# 限定し、Linux/macOS 専用の transitive（Wayland スタック等）を対象外にする。これにより実際には
+# リンクされない依存の advisory/license 誤検出を排除する（例: wayland-scanner 経由の quick-xml
+# 0.39.4 は Windows ではビルドされない）。
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+
+[advisories]
+version = 2
+yanked = "deny"
+# いずれも Slint 経由の transitive。unmaintained 勧告のみで脆弱性ではなく、修正版が存在しない。
+# - RUSTSEC-2024-0436: paste（マクロ依存）
+# - RUSTSEC-2026-0192: ttf-parser（resvg→usvg 経由の SVG 描画スタック。安全なアップグレード無し）
+# - RUSTSEC-2026-0206: rustybuzz（テキストシェーピング。メンテナが保守終了を宣言・修正版無し）
+ignore = ["RUSTSEC-2024-0436", "RUSTSEC-2026-0192", "RUSTSEC-2026-0206"]
+
+[bans]
+multiple-versions = "warn"
+
+[licenses]
+version = 2
+# いずれも OSI 承認・FSF フリーの寛容ライセンス。
+# BSD-2-Clause: arrayref (blake3 依存) / BSL-1.0: xxhash-rust(xxh3)
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "Zlib",
+    # 以下は Slint(winit/a11y 系: accesskit/zbus 等)の transitive。いずれも permissive。
+    "ISC",
+    "NCSA",
+    # 本体クレート（shredy-*）および Slint(GPL-3.0 or 商用)を GPL-3.0 で利用する方針。
+    "GPL-3.0-only",
+]
+
+# Slint 本体・関連クレート（slint / i-slint-* / slint-build）は GPL-3.0 / Slint 独自ライセンスの
+# デュアル。本体を GPL-3.0-only で配布する方針に伴い、Slint も GPL-3.0 オプションで利用する
+# （上記 allow の "GPL-3.0-only" で充足するため個別 exception は不要）。GUI フレームワーク採用（U11）。
+
+# heic（純 Rust HEIC/HEIF デコーダ §3.12）は AGPL-3.0-only / Imazen 商用のデュアルライセンス。
+# 本体は GPL-3.0-only で配布する方針のため、heic は AGPL-3.0 オプションで利用する。AGPL-3.0 は
+# GPLv3 §13 により GPL-3.0 と結合可能で、AGPL のソース開示義務は GPL-3.0 でのソース公開により
+# 充足される（GPL/AGPL を全体 allow しない方針のため当該クレートのみ個別許可）。
+# 備考: ローカル動作ツールのため AGPL §13 のネットワーク頒布条項は実質的に発動しない。
+# transitive 依存（archmage/magetypes/whereat/enough/safe_unaligned_simd/memchr）は
+# MIT/Apache/Unlicense で既存 allow 済み。
+[[licenses.exceptions]]
+name = "heic"
+allow = ["AGPL-3.0-only"]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

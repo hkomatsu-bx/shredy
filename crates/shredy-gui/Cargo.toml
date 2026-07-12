@@ -1,0 +1,51 @@
+[package]
+name = "shredy-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "shredy-gui"
+path = "src/main.rs"
+
+[lib]
+# bridge / viewmodel のロジックを単体テスト可能にするため lib も公開する。
+name = "shredy_gui"
+path = "src/lib.rs"
+
+[features]
+# 既定で HEIC/HEIF プレビュー描画を有効化する。`heic` は GUI 側の HEIC コード（preview.rs の
+# 描画分岐）をゲートし、同時に core の `heic` feature も引き込む。ワークスペース全体を
+# `cargo build --workspace --no-default-features` でビルドすると GUI/core 双方の `heic` 既定が
+# 連動して切れ、HEIC は「関連付けで開く」に分類される（実行ファイルサイズ削減・AGPL 回避）。
+default = ["heic"]
+heic = ["shredy-core/heic"]
+
+[dependencies]
+slint = { workspace = true }
+# heic は GUI の `heic` feature（＝shredy-core/heic）でのみ引き込む。core の既定は
+# workspace 定義側で無効化済みのため、`--no-default-features` で GUI/core 双方の heic が
+# 連動して外れる（配線意図どおり）。
+shredy-core = { workspace = true }
+tracing = { workspace = true }
+rfd = { workspace = true }
+log = { workspace = true }
+chrono = { workspace = true }
+arboard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+encoding_rs = { workspace = true }
+# explorer.exe へ渡す前に `\\?\` 拡張長パスプレフィックスを外す（explorer は解釈できない）。
+dunce = { workspace = true }
+# icu_provider の logging feature を有効化（feature 統一で parley 経由の icu 警告を log 化）。
+icu_provider = { workspace = true }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

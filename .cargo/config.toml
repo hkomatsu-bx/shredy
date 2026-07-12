@@ -1,0 +1,12 @@
+# Cargo ビルド設定。
+#
+# CPU マイクロアーキ水準を x86-64-v3（AVX2 / FMA / BMI1/2 / F16C / LZCNT 等）に固定する。
+# 対象 2 機種（Intel Core Ultra 7 155H = Meteor Lake / AMD Ryzen 7 7735HS = Zen3+）が
+# いずれも満たす最上位水準で、移植性（Haswell 2013+ / Zen+ で動作）と速度を両立する。
+# `target-cpu=native` は生成元 CPU 専用となり別機種で不正命令クラッシュするため不採用。
+# v4 は AVX-512 必須で両機種とも非対応のため不可。
+#
+# 注: BLAKE3 / XXH3 は crate が実行時に SIMD を選択するため本設定に依存しないが、
+# 画像 DCT・比較ループ等のコア処理は v3 の有効化で最適化され得る。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64-v3"]

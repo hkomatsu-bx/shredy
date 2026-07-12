@@ -1,0 +1,63 @@
+// Fluent パレット参照とテーマ追従の色定数（設計 §3.1 / U12 M5）。
+// 色は std-widgets の Palette（Fluent ブラシ・ColorScheme 追従）から導出し、
+// モック固有のトーン（ページ面 mica ⇔ chrome win_bg）は scheme 別に明示する。
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    // 現在ダークテーマか（Palette の ColorScheme 追従）。
+    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+
+    // ── 寸法・形状 ──────────────────────────────
+    out property <length> pane_padding: 12px;
+    out property <length> row_height: 40px;
+    out property <length> radius_ctrl: 4px;
+    out property <length> radius_card: 8px;
+    out property <length> sidebar_w: 232px;
+    out property <length> sidebar_w_compact: 48px;
+    // 結果列の既定幅。
+    out property <length> name_col_width: 240px;
+    out property <length> place_col_width: 320px;
+    out property <length> size_col_width: 96px;
+    out property <length> modified_col_width: 150px;
+    out property <length> state_col_width: 96px;
+
+    // ── アクセント（Palette 追従）────────────────
+    out property <brush> accent: Palette.accent-background;
+    out property <brush> accent_fg: Palette.accent-foreground;
+
+    // ── 面（chrome=win_bg / ページ=mica / カード=layer）──
+    out property <brush> win_bg: root.dark ? #202020 : #f3f3f3;
+    out property <brush> mica: root.dark ? #1c1c1c : #eef1f6;
+    out property <brush> layer: root.dark ? #272727 : #fbfbfb;
+    out property <brush> layer2: root.dark ? #2d2d2d : #ffffff;
+    out property <brush> card_border: root.dark ? rgba(255, 255, 255, 0.07) : rgba(0, 0, 0, 0.058);
+    out property <brush> divider: root.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.08);
+    // 視認できる境界線（白背景の輪郭付きボタン等, polish3）。
+    out property <brush> border_strong: root.dark ? rgba(255, 255, 255, 0.18) : rgba(0, 0, 0, 0.20);
+
+    // ── 文字 ────────────────────────────────────
+    out property <brush> fg: Palette.foreground;
+    out property <brush> text_secondary: root.dark ? rgba(255, 255, 255, 0.79) : rgba(0, 0, 0, 0.60);
+    out property <brush> text_tertiary: root.dark ? rgba(255, 255, 255, 0.55) : rgba(0, 0, 0, 0.45);
+    // 強調テキスト（Dark で背景に埋もれないよう明度を上げる, §3.7 #4）。
+    // 結果サマリの件数（紫）・ステータスバーの状態表示（青）。
+    out property <brush> summary_number: root.dark ? #c4a7f5 : #7a3fd0;
+    out property <brush> status_info: root.dark ? #60a5fa : #0067c0;
+
+    // ── インタラクション・状態色 ─────────────────
+    out property <brush> hover_bg: root.dark ? rgba(255, 255, 255, 0.055) : rgba(0, 0, 0, 0.037);
+    out property <brush> row_sel: root.dark ? rgba(96, 165, 250, 0.26) : rgba(0, 103, 192, 0.12);
+    out property <brush> row_sel_hover: root.dark ? rgba(96, 165, 250, 0.34) : rgba(0, 103, 192, 0.18);
+    out property <brush> danger: root.dark ? #ffb3bc : #c42b1c;
+    out property <brush> success: root.dark ? #6ccb5f : #0f7b0f;
+    out property <brush> warn: root.dark ? #fce100 : #9d5d00;
+
+    // ── 互換（既存参照。段階的に上記へ寄せる）────
+    out property <brush> pane_bg: root.mica;
+    out property <brush> sidebar_bg: root.win_bg;
+    out property <brush> group_header_bg: root.dark ? rgba(255, 255, 255, 0.035) : rgba(0, 0, 0, 0.022);
+    // 行ハイライト（単一行・フォーカス）。文字色は据え置きで背景のみ薄い紫ティント
+    // （濃い塗り＋白字を避け、視認性と落ち着きを両立, polish3 指摘で紫系に変更）。
+    out property <brush> highlight_bg: root.dark ? rgba(167, 139, 250, 0.18) : rgba(124, 58, 200, 0.11);
+    out property <brush> highlight_fg: root.fg;
+}

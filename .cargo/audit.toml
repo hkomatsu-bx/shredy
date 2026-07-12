@@ -1,0 +1,26 @@
+# cargo-audit 設定（CI の security-audit ジョブ用）。
+#
+# advisory ポリシーの唯一の正典は cargo-deny（deny.toml）。CI では cargo-audit も併用するが、
+# cargo-audit は deny.toml の除外方針を参照しないため、deny 側で許容している advisory を
+# ここでも ignore して両者を整合させる。deny.toml を更新したら本ファイルも同期すること。
+#
+# cargo-audit は deny.toml の [graph].targets（Windows 限定監査）を解さないため、Windows では
+# ビルドされない Linux 専用 transitive の advisory も ID で明示的に ignore する。
+#
+# - RUSTSEC-2024-0436: paste（Slint のマクロ依存・unmaintained・修正版なし）。deny も ignore。
+# - RUSTSEC-2026-0192: ttf-parser（Slint の SVG 描画スタック・unmaintained・安全な upgrade なし）。deny も ignore。
+# - RUSTSEC-2026-0194 / -0195: quick-xml 0.39.4（wayland-scanner 経由の Linux 専用 transitive の DoS）。
+#   本体の直接依存 quick-xml は 0.41 で修正済み。deny は [graph].targets で当該経路を除外するが、
+#   cargo-audit は target 限定不可のため advisory ID で ignore する（直接依存の退行は deny が検出する）。
+# - RUSTSEC-2025-0141: bincode（dev 依存〔criterion 等〕経由の unmaintained・出荷バイナリに非含有）。
+#   unmaintained 勧告のみで脆弱性ではない。deny は通常依存木のみを見るため対象外。
+# - RUSTSEC-2026-0206: rustybuzz（Slint のテキストシェーピング・unmaintained・修正版なし）。deny も ignore。
+[advisories]
+ignore = [
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0192",
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    "RUSTSEC-2025-0141",
+    "RUSTSEC-2026-0206",
+]

@@ -1,0 +1,1369 @@
+// 一括リネームページ（§3.10.1, モック準拠＝インライン編集モデル）。
+// 「ステップ追加」で既定（連番）を追加して選択 → ステップ行クリックで選択 → 下のエディタ
+// （カテゴリ→方式→パラメータ）が選択中ステップをその場で書き換える。プレビューは自動再計算。
+// EXIF はトークンチップのクリックでパターンへ挿入する（手入力不要の UX）。
+import { ListView, ScrollView, CheckBox, LineEdit, SpinBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { RenameStepRow, RenamePreviewRow, RecipeRow, Icon } from "types.slint";
+import { CmdButton } from "dup_search.slint";
+
+// プレビューの列幅（ヘッダ右端ドラッグで「変更前」列をリサイズ。変更後は残りを使う）。
+global PCols {
+    in-out property <length> before: 440px;
+    out property <length> min: 160px;
+}
+
+// 小型のフラットボタン（ステップ行の ↑ ↓ ×。× は U+00D7＝豆腐回避）。
+component SmallBtn inherits Rectangle {
+    in property <string> glyph;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    callback clicked();
+    width: 24px;
+    height: 24px;
+    border-radius: Theme.radius_ctrl;
+    opacity: root.enabled ? 1.0 : 0.3;
+    background: ta.has-hover && root.enabled
+        ? (root.danger ? Theme.danger.with-alpha(0.12) : Theme.hover_bg) : transparent;
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+    Text {
+        text: root.glyph;
+        color: root.danger ? Theme.danger : Theme.fg;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// セグメント選択（先頭/末尾・対象・変換・書式・動作。モックの rn-seg 相当）。
+component SegBtn inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked();
+    height: 28px;
+    border-radius: Theme.radius_ctrl;
+    background: root.on ? Theme.row_sel : (ta.has-hover ? Theme.hover_bg : transparent);
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        Text {
+            text: root.text;
+            vertical-alignment: center;
+            font-size: 12px;
+            color: Theme.fg;
+        }
+    }
+}
+
+// レシピの 1 ステップ行（番号＋有効チェック＋方式名＋設定要約＋上下/削除）。クリックで選択。
+component StepItem inherits Rectangle {
+    in property <RenameStepRow> entry;
+    in property <int> number;
+    in property <bool> selected;
+    in property <bool> is_first;
+    in property <bool> is_last;
+    callback clicked();
+    callback toggle();
+    callback move_up();
+    callback move_down();
+    callback remove();
+
+    height: 34px;
+    border-radius: Theme.radius_ctrl;
+    background: root.selected ? Theme.row_sel : (ta.has-hover ? Theme.hover_bg : transparent);
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 8px;
+        Rectangle {
+            width: 22px;
+            Rectangle {
+                width: 22px;
+                height: 22px;
+                border-radius: 4px;
+                background: Theme.accent.with-alpha(0.14);
+                Text {
+                    text: root.number;
+                    color: Theme.accent;
+                    font-size: 12px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        CheckBox {
+            checked: root.entry.enabled;
+            toggled => {
+                root.toggle();
+            }
+            accessible-label: "ステップ有効";
+        }
+        Text {
+            text: root.entry.name;
+            vertical-alignment: center;
+            font-weight: 600;
+            color: root.entry.enabled ? Theme.fg : Theme.text_tertiary;
+        }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0;
+            text: root.entry.summary;
+            vertical-alignment: center;
+            overflow: elide;
+            font-size: 12px;
+            color: Theme.text_secondary;
+        }
+        SmallBtn {
+            glyph: "↑";
+            enabled: !root.is_first;
+            clicked => {
+                root.move_up();
+            }
+        }
+        SmallBtn {
+            glyph: "↓";
+            enabled: !root.is_last;
+            clicked => {
+                root.move_down();
+            }
+        }
+        SmallBtn {
+            glyph: "×";
+            danger: true;
+            clicked => {
+                root.remove();
+            }
+        }
+    }
+}
+
+// EXIF トークンチップ（クリックでパターン末尾へ挿入）。
+component TokenChip inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    height: 26px;
+    border-radius: 13px;
+    border-width: 1px;
+    border-color: Theme.border_strong;
+    background: ta.has-hover ? Theme.hover_bg : Theme.layer2;
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        Text {
+            text: "＋" + root.label;
+            vertical-alignment: center;
+            font-size: 12px;
+            color: Theme.fg;
+        }
+    }
+}
+
+export component BulkRenamePage inherits VerticalLayout {
+    in property <string> rename_root: "（未選択）";
+    in property <[RenameStepRow]> steps;
+    in property <int> sel_step: -1;
+    in property <[RenamePreviewRow]> rows;
+    in property <int> total_count: 0;
+    in property <int> changed_count: 0;
+    in property <int> conflict_count: 0;
+    in property <int> undo_depth: 0;
+    in property <bool> is_searching: false;
+    in property <bool> previewing: false; // プレビュー計算中（反映中インジケータ）
+    in property <[RecipeRow]> recipes;
+    in-out property <bool> show_changed_only: false; // 変更/衝突行のみ表示
+
+    // 選択中ステップの編集フォーム値（Rust が decompose で設定・-1=選択なし）。
+    // コントロールと <=> で双方向束縛し、変更時は edit_changed() で Rust が読み取る。
+    in property <int> edit_method: -1;
+    in-out property <string> edit_t1: "";
+    in-out property <string> edit_t2: "";
+    in-out property <int> edit_n1: 3;
+    in-out property <int> edit_n2: 1;
+    in-out property <int> edit_fmt: 0;
+    in-out property <int> edit_pos: 1;
+    in-out property <int> edit_target: 1;
+    in-out property <int> edit_conv: 1;
+    in property <bool> edit_uses_date: false;
+    in property <bool> edit_uses_seq: false;
+
+    // オプション（AppWindow と双方向束縛。Rust がプレビュー/適用時に読む）。
+    in-out property <bool> include_subfolders: false;
+    in-out property <bool> include_folders: false;
+    in-out property <string> filter: "";
+    in-out property <int> mode: 0; // 0=リネーム / 1=コピー＆ / 2=移動＆
+    in-out property <string> dest: "";
+
+    callback pick_folder();
+    callback browse_dest();
+    callback add_step();
+    callback select_step(int);
+    callback set_method(int);
+    // 編集フォームの変更（無引数。値は two-way 束縛済みの edit_* を Rust が読む）。
+    callback edit_changed();
+    callback remove_step(int);
+    callback move_step(int, bool);
+    callback toggle_step(int);
+    callback clear_steps();
+    callback apply();
+    callback undo();
+    callback options_changed();
+    callback filter_toggled();
+    callback open_entry(int); // 行の保存フォルダをエクスプローラーで開く（num を渡す）
+    // 行ホバーのフルパスツールチップ（AppWindow の共通オーバーレイへ中継）。
+    callback request_tip(string, length, length);
+    callback hide_tip();
+    callback recipe_save(string);
+    callback recipe_load(string);
+    callback recipe_delete(string);
+
+    // 新規追加モード（edit_method == -2）中のカテゴリ仮選択（-1=未選択）。
+    // 方式を選ぶまでステップは追加されず変換も走らない（実機 FB 3 巡目）。
+    in-out property <int> add_cat: -1;
+
+    // EXIF トークンをパターン末尾へ挿入（チップクリック。two-way 束縛で LineEdit へ即反映）。
+    function insert_token(tok: string) {
+        root.edit_t1 = root.edit_t1 + tok;
+        root.edit_changed();
+    }
+    // 表示中カテゴリ（選択中ステップがあればその方式から・新規モードは仮選択）。
+    pure function active_cat() -> int {
+        if (root.edit_method >= 0) { return root.cat_of(root.edit_method); }
+        return root.add_cat;
+    }
+    // 方式 index → カテゴリ index（追加0/変換1/削除2/置換3/その他4）。
+    pure function cat_of(m: int) -> int {
+        if (m <= 3) { return 0; }
+        if (m == 4) { return 1; }
+        if (m <= 6) { return 2; }
+        if (m <= 8) { return 3; }
+        return 4;
+    }
+
+    padding: Theme.pane_padding;
+    spacing: 10px;
+
+    Text {
+        text: "一括リネーム";
+        font-size: 18px;
+        font-weight: 700;
+        color: Theme.fg;
+    }
+
+    // 上段: 左=対象フォルダ / 右=リネームレシピ（インラインエディタ＋適用行）。
+    HorizontalLayout {
+        spacing: 10px;
+        vertical-stretch: 0;
+
+        // ── 左ペイン: 対象フォルダ・オプション ──
+        Rectangle {
+            width: 260px;
+            border-radius: Theme.radius_card;
+            background: Theme.layer;
+            border-width: 1px;
+            border-color: Theme.card_border;
+            VerticalLayout {
+                padding: 10px;
+                spacing: 8px;
+                alignment: start;
+                Text {
+                    text: "対象フォルダ";
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: root.rename_root;
+                    wrap: word-wrap;
+                    color: Theme.text_secondary;
+                    font-size: 12px;
+                }
+                CmdButton {
+                    text: "フォルダ選択…";
+                    outlined: true;
+                    enabled: !root.is_searching;
+                    clicked => {
+                        root.pick_folder();
+                    }
+                }
+                Rectangle {
+                    height: 1px;
+                    background: Theme.divider;
+                }
+                // placeholder は全角括弧が豆腐化するため使わない（実機確認 2026-06-10）。
+                Text {
+                    text: "フィルタ（; 区切り・Enter で反映）";
+                    font-size: 12px;
+                    color: Theme.text_secondary;
+                }
+                LineEdit {
+                    placeholder-text: "例: *.jpg;*.png";
+                    text <=> root.filter;
+                    accepted => {
+                        root.options_changed();
+                    }
+                }
+                CheckBox {
+                    text: "サブフォルダを含む";
+                    checked <=> root.include_subfolders;
+                    toggled => {
+                        root.options_changed();
+                    }
+                }
+                CheckBox {
+                    text: "フォルダも対象に含む";
+                    checked <=> root.include_folders;
+                    toggled => {
+                        root.options_changed();
+                    }
+                }
+            }
+        }
+
+        // ── 右ペイン: リネームレシピ ──
+        Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0;
+            border-radius: Theme.radius_card;
+            background: Theme.layer;
+            border-width: 1px;
+            border-color: Theme.card_border;
+            VerticalLayout {
+                padding: 10px;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "リネームレシピ";
+                        vertical-alignment: center;
+                        font-weight: 700;
+                        color: Theme.fg;
+                    }
+                    Text {
+                        text: "上から順に適用されます";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_tertiary;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    recipe_btn := CmdButton {
+                        text: "レシピ";
+                        show_chevron: true;
+                        clicked => {
+                            recipe_menu.show();
+                        }
+                    }
+                    CmdButton {
+                        text: "＋ ステップ追加";
+                        clicked => {
+                            root.add_cat = -1; // 新規追加モードはカテゴリ未選択から。
+                            root.add_step();
+                        }
+                    }
+                    CmdButton {
+                        text: "全消去";
+                        danger_text: true;
+                        enabled: root.steps.length > 0 && !root.is_searching;
+                        clicked => {
+                            root.clear_steps();
+                        }
+                    }
+                }
+
+                // ステップ一覧（クリックで選択→下のエディタで編集）。
+                Rectangle {
+                    min-height: 70px;
+                    max-height: 110px;
+                    vertical-stretch: 0;
+                    border-radius: Theme.radius_ctrl;
+                    background: Theme.layer2;
+                    border-width: 1px;
+                    border-color: Theme.card_border;
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 4px;
+                            alignment: start;
+                            if root.steps.length == 0: Text {
+                                text: "「＋ ステップ追加」からリネーム方式を追加してください";
+                                height: 32px;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                                color: Theme.text_secondary;
+                                font-size: 12px;
+                            }
+                            for step[i] in root.steps: StepItem {
+                                entry: step;
+                                number: i + 1;
+                                selected: root.sel_step == step.idx;
+                                is_first: i == 0;
+                                is_last: i == root.steps.length - 1;
+                                clicked => {
+                                    root.select_step(step.idx);
+                                }
+                                toggle => {
+                                    root.toggle_step(step.idx);
+                                }
+                                move_up => {
+                                    root.move_step(step.idx, true);
+                                }
+                                move_down => {
+                                    root.move_step(step.idx, false);
+                                }
+                                remove => {
+                                    root.remove_step(step.idx);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // インラインエディタ（選択中ステップ or 新規追加モード）。
+                // 新規追加モード（-2）ではカテゴリは仮選択のみ・方式選択で実追加される。
+                if root.edit_method >= 0 || root.edit_method == -2: VerticalLayout {
+                    spacing: 6px;
+                    // カテゴリ。
+                    HorizontalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        Text {
+                            text: "カテゴリ";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_tertiary;
+                        }
+                        SegBtn {
+                            text: "追加";
+                            on: root.active_cat() == 0;
+                            clicked => {
+                                if (root.edit_method == -2) {
+                                    root.add_cat = 0;
+                                } else {
+                                    root.set_method(0);
+                                }
+                            }
+                        }
+                        SegBtn {
+                            text: "変換";
+                            on: root.active_cat() == 1;
+                            clicked => {
+                                if (root.edit_method == -2) {
+                                    root.add_cat = 1;
+                                } else {
+                                    root.set_method(4);
+                                }
+                            }
+                        }
+                        SegBtn {
+                            text: "削除";
+                            on: root.active_cat() == 2;
+                            clicked => {
+                                if (root.edit_method == -2) {
+                                    root.add_cat = 2;
+                                } else {
+                                    root.set_method(5);
+                                }
+                            }
+                        }
+                        SegBtn {
+                            text: "置換";
+                            on: root.active_cat() == 3;
+                            clicked => {
+                                if (root.edit_method == -2) {
+                                    root.add_cat = 3;
+                                } else {
+                                    root.set_method(7);
+                                }
+                            }
+                        }
+                        SegBtn {
+                            text: "その他";
+                            on: root.active_cat() == 4;
+                            clicked => {
+                                if (root.edit_method == -2) {
+                                    root.add_cat = 4;
+                                } else {
+                                    root.set_method(9);
+                                }
+                            }
+                        }
+                    }
+                    // 新規追加モードのガイダンス。
+                    if root.edit_method == -2 && root.add_cat < 0: Text {
+                        text: "カテゴリを選択してください";
+                        font-size: 12px;
+                        color: Theme.text_tertiary;
+                    }
+                    if root.edit_method == -2 && root.add_cat >= 0: Text {
+                        text: "方式を選択するとステップが追加されます";
+                        font-size: 12px;
+                        color: Theme.text_tertiary;
+                    }
+                    // 方式（カテゴリ内）。
+                    HorizontalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        if root.active_cat() == 0: SegBtn {
+                            text: "連番";
+                            on: root.edit_method == 0;
+                            clicked => {
+                                root.set_method(0);
+                            }
+                        }
+                        if root.active_cat() == 0: SegBtn {
+                            text: "文字列＋連番";
+                            on: root.edit_method == 1;
+                            clicked => {
+                                root.set_method(1);
+                            }
+                        }
+                        if root.active_cat() == 0: SegBtn {
+                            text: "日時＋連番";
+                            on: root.edit_method == 2;
+                            clicked => {
+                                root.set_method(2);
+                            }
+                        }
+                        if root.active_cat() == 0: SegBtn {
+                            text: "EXIF情報";
+                            on: root.edit_method == 3;
+                            clicked => {
+                                root.set_method(3);
+                            }
+                        }
+                        if root.active_cat() == 1: SegBtn {
+                            text: "大文字・小文字";
+                            on: root.edit_method == 4;
+                            clicked => {
+                                root.set_method(4);
+                            }
+                        }
+                        if root.active_cat() == 2: SegBtn {
+                            text: "文字列を削除";
+                            on: root.edit_method == 5;
+                            clicked => {
+                                root.set_method(5);
+                            }
+                        }
+                        if root.active_cat() == 2: SegBtn {
+                            text: "位置指定で削除";
+                            on: root.edit_method == 6;
+                            clicked => {
+                                root.set_method(6);
+                            }
+                        }
+                        if root.active_cat() == 3: SegBtn {
+                            text: "テキスト置換";
+                            on: root.edit_method == 7;
+                            clicked => {
+                                root.set_method(7);
+                            }
+                        }
+                        if root.active_cat() == 3: SegBtn {
+                            text: "正規表現置換";
+                            on: root.edit_method == 8;
+                            clicked => {
+                                root.set_method(8);
+                            }
+                        }
+                        if root.active_cat() == 4: SegBtn {
+                            text: "URLデコード";
+                            on: root.edit_method == 9;
+                            clicked => {
+                                root.set_method(9);
+                            }
+                        }
+                        if root.active_cat() == 4: SegBtn {
+                            text: "濁点・半濁点の結合";
+                            on: root.edit_method == 10;
+                            clicked => {
+                                root.set_method(10);
+                            }
+                        }
+                    }
+                    // パラメータ（方式別）。
+                    // 連番: 位置 / （共通）桁数・開始番号・区切り。
+                    if root.edit_method == 0: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "位置";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        SegBtn {
+                            text: "先頭";
+                            on: root.edit_pos == 0;
+                            clicked => {
+                                root.edit_pos = 0; root.edit_changed();
+                            }
+                        }
+                        SegBtn {
+                            text: "末尾";
+                            on: root.edit_pos == 1;
+                            clicked => {
+                                root.edit_pos = 1; root.edit_changed();
+                            }
+                        }
+                    }
+                    if root.edit_method == 1: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "文字列";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        LineEdit {
+                            width: 160px;
+                            text <=> root.edit_t1;
+                            edited => {
+                                root.edit_changed();
+                            }
+                        }
+                    }
+                    if root.edit_method == 2: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "日時";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        LineEdit {
+                            width: 140px;
+                            placeholder-text: "空欄なら今日 YYYYMMDD";
+                            text <=> root.edit_t1;
+                            edited => {
+                                root.edit_changed();
+                            }
+                        }
+                    }
+                    // EXIF: 命名パターン＋トークンチップ＋（条件付き）書式・連番。
+                    if root.edit_method == 3: VerticalLayout {
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: "命名パターン";
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: Theme.text_secondary;
+                            }
+                            LineEdit {
+                                horizontal-stretch: 1;
+                                text <=> root.edit_t1;
+                                edited => {
+                                    root.edit_changed();
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            TokenChip {
+                                label: "撮影日時";
+                                clicked => {
+                                    root.insert_token("{撮影日時}");
+                                }
+                            }
+                            TokenChip {
+                                label: "メーカー";
+                                clicked => {
+                                    root.insert_token("{メーカー}");
+                                }
+                            }
+                            TokenChip {
+                                label: "機種";
+                                clicked => {
+                                    root.insert_token("{機種}");
+                                }
+                            }
+                            TokenChip {
+                                label: "レンズ";
+                                clicked => {
+                                    root.insert_token("{レンズ}");
+                                }
+                            }
+                            TokenChip {
+                                label: "連番";
+                                clicked => {
+                                    root.insert_token("{連番}");
+                                }
+                            }
+                            TokenChip {
+                                label: "元のファイル名";
+                                clicked => {
+                                    root.insert_token("{元名}");
+                                }
+                            }
+                        }
+                        if root.edit_uses_date: HorizontalLayout {
+                            spacing: 4px;
+                            alignment: start;
+                            Text {
+                                text: "撮影日時フォーマット";
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                color: Theme.text_secondary;
+                            }
+                            SegBtn {
+                                text: "YYYYMMDD_HHMMSS";
+                                on: root.edit_fmt == 0;
+                                clicked => {
+                                    root.edit_fmt = 0; root.edit_changed();
+                                }
+                            }
+                            SegBtn {
+                                text: "YYYY-MM-DD";
+                                on: root.edit_fmt == 1;
+                                clicked => {
+                                    root.edit_fmt = 1; root.edit_changed();
+                                }
+                            }
+                            SegBtn {
+                                text: "YYYYMMDD";
+                                on: root.edit_fmt == 2;
+                                clicked => {
+                                    root.edit_fmt = 2; root.edit_changed();
+                                }
+                            }
+                        }
+                        Text {
+                            text: "トークンを組み合わせて命名パターンを作成します（例: {機種}_{撮影日時}）。EXIF が無いファイルは変更しません。";
+                            wrap: word-wrap;
+                            font-size: 11px;
+                            color: Theme.text_tertiary;
+                        }
+                    }
+                    if root.edit_method == 4: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "対象";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        SegBtn {
+                            text: "ファイル名";
+                            on: root.edit_target == 0;
+                            clicked => {
+                                root.edit_target = 0; root.edit_changed();
+                            }
+                        }
+                        SegBtn {
+                            text: "拡張子";
+                            on: root.edit_target == 1;
+                            clicked => {
+                                root.edit_target = 1; root.edit_changed();
+                            }
+                        }
+                        Text {
+                            text: "変換";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        SegBtn {
+                            text: "大文字";
+                            on: root.edit_conv == 0;
+                            clicked => {
+                                root.edit_conv = 0; root.edit_changed();
+                            }
+                        }
+                        SegBtn {
+                            text: "小文字";
+                            on: root.edit_conv == 1;
+                            clicked => {
+                                root.edit_conv = 1; root.edit_changed();
+                            }
+                        }
+                    }
+                    if root.edit_method == 5: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "削除する文字列";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        LineEdit {
+                            width: 200px;
+                            text <=> root.edit_t1;
+                            edited => {
+                                root.edit_changed();
+                            }
+                        }
+                    }
+                    if root.edit_method == 6: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "開始位置（先頭からM文字目）";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        SpinBox {
+                            width: 84px;
+                            minimum: 1;
+                            maximum: 9999;
+                            value <=> root.edit_n1;
+                            edited(v) => {
+                                root.edit_changed();
+                            }
+                        }
+                        Text {
+                            text: "削除文字数（N文字）";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        SpinBox {
+                            width: 84px;
+                            minimum: 0;
+                            maximum: 9999;
+                            value <=> root.edit_n2;
+                            edited(v) => {
+                                root.edit_changed();
+                            }
+                        }
+                    }
+                    if root.edit_method == 7 || root.edit_method == 8: HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: root.edit_method == 7 ? "検索文字列" : "パターン（正規表現）";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        LineEdit {
+                            width: 170px;
+                            text <=> root.edit_t1;
+                            edited => {
+                                root.edit_changed();
+                            }
+                        }
+                        Text {
+                            text: "置換後";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        LineEdit {
+                            width: 150px;
+                            text <=> root.edit_t2;
+                            edited => {
+                                root.edit_changed();
+                            }
+                        }
+                    }
+                    if root.edit_method == 9: Text {
+                        text: "%XX 形式のファイル名をデコードします。";
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    if root.edit_method == 10: Text {
+                        text: "分離した濁点・半濁点を結合します（Mac から共有されたファイル名対策）。";
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    // 共通: 連番系の桁数・開始番号・区切り（EXIF は {連番} 使用時のみ桁/開始。
+                    // 新規追加モード -2 では非表示にするため >= 0 を併置）。
+                    if (root.edit_method >= 0 && root.edit_method <= 2)
+                        || (root.edit_method == 3 && root.edit_uses_seq): HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text {
+                            text: "桁数";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        SpinBox {
+                            width: 84px;
+                            minimum: 0;
+                            maximum: 18;
+                            value <=> root.edit_n1;
+                            edited(v) => {
+                                root.edit_changed();
+                            }
+                        }
+                        Text {
+                            text: "開始番号";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        SpinBox {
+                            width: 96px;
+                            minimum: 0;
+                            maximum: 999999;
+                            value <=> root.edit_n2;
+                            edited(v) => {
+                                root.edit_changed();
+                            }
+                        }
+                        if root.edit_method == 0: Text {
+                            text: "区切り";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        if root.edit_method == 0: LineEdit {
+                            width: 64px;
+                            text <=> root.edit_t1;
+                            edited => {
+                                root.edit_changed();
+                            }
+                        }
+                        if root.edit_method == 1 || root.edit_method == 2: Text {
+                            text: "区切り";
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_secondary;
+                        }
+                        if root.edit_method == 1 || root.edit_method == 2: LineEdit {
+                            width: 64px;
+                            text <=> root.edit_t2;
+                            edited => {
+                                root.edit_changed();
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.divider;
+                }
+
+                // 動作（モード）＋出力先。
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Text {
+                        text: "動作";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_tertiary;
+                    }
+                    SegBtn {
+                        text: "リネーム";
+                        on: root.mode == 0;
+                        clicked => {
+                            root.mode = 0;
+                            root.options_changed();
+                        }
+                    }
+                    SegBtn {
+                        text: "コピー＆リネーム";
+                        on: root.mode == 1;
+                        clicked => {
+                            root.mode = 1;
+                            root.options_changed();
+                        }
+                    }
+                    SegBtn {
+                        text: "移動＆リネーム";
+                        on: root.mode == 2;
+                        clicked => {
+                            root.mode = 2;
+                            root.options_changed();
+                        }
+                    }
+                    if root.mode != 0: Text {
+                        text: "出力先";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_tertiary;
+                    }
+                    if root.mode != 0: LineEdit {
+                        width: 180px;
+                        placeholder-text: "出力先フォルダ Enter で反映";
+                        text <=> root.dest;
+                        accepted => {
+                            root.options_changed();
+                        }
+                    }
+                    if root.mode != 0: CmdButton {
+                        text: "参照…";
+                        outlined: true;
+                        clicked => {
+                            root.browse_dest();
+                        }
+                    }
+                }
+
+                // 適用行（件数サマリ＝反映中はインジケータ＋変更のみフィルタ＋元に戻す＋適用）。
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: root.previewing ? "プレビュー反映中…"
+                            : (root.total_count > 0
+                            ? "対象 " + root.total_count + " 件中 " + root.changed_count + " 件が変更"
+                              + (root.conflict_count > 0 ? " · " + root.conflict_count + " 件が名前重複" : "")
+                            : "対象フォルダとステップを設定するとプレビューされます");
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: root.previewing ? Theme.accent
+                            : root.conflict_count > 0 ? Theme.danger
+                            : (root.total_count > 0 ? Theme.fg : Theme.text_secondary);
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    CmdButton {
+                        text: "変更のみ";
+                        icon: @image-url("icons/filter.svg");
+                        toggled: root.show_changed_only;
+                        clicked => {
+                            root.show_changed_only = !root.show_changed_only;
+                            root.filter_toggled();
+                        }
+                    }
+                    CmdButton {
+                        text: "元に戻す";
+                        badge: root.undo_depth;
+                        enabled: !root.is_searching && root.undo_depth > 0;
+                        clicked => {
+                            root.undo();
+                        }
+                    }
+                    CmdButton {
+                        text: root.mode == 0 ? "リネーム適用" : (root.mode == 1 ? "コピー＆リネーム" : "移動＆リネーム");
+                        primary: true;
+                        badge: root.changed_count;
+                        enabled: !root.is_searching && root.changed_count > 0 && root.conflict_count == 0;
+                        clicked => {
+                            root.apply();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 下段: プレビュー（全幅・# / 変更前 / → / 変更後。各行にフォルダパス併記）。
+    Rectangle {
+        vertical-stretch: 1;
+        clip: true;
+        min-width: 0;
+        border-radius: Theme.radius_card;
+        background: Theme.layer;
+        border-width: 1px;
+        border-color: Theme.card_border;
+        VerticalLayout {
+            Rectangle {
+                height: 30px;
+                background: Theme.group_header_bg;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 12px;
+                    spacing: 8px;
+                    Text {
+                        width: 34px;
+                        text: "#";
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    Text {
+                        width: PCols.before;
+                        text: "変更前";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    Rectangle {
+                        width: 22px;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        min-width: 0;
+                        text: "変更後";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                }
+                // 「変更前」列の右端ドラッグでリサイズ（util/dup と同方式＝ヘッダ全幅 TouchArea）。
+                // 境界 x = padding 8 + #列 34 + spacing 8 + before 幅。
+                presize := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+                    property <length> edge: 50px + PCols.before;
+                    property <bool> dragging: false;
+                    mouse-cursor: abs(self.mouse-x - self.edge) < 8px || self.dragging
+                        ? MouseCursor.col-resize : MouseCursor.default;
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down) {
+                            self.dragging = abs(self.mouse-x - self.edge) < 8px;
+                        }
+                        if (e.kind == PointerEventKind.up) {
+                            self.dragging = false;
+                        }
+                    }
+                    moved => {
+                        if (self.dragging) {
+                            PCols.before = max(PCols.min,
+                                min(self.mouse-x - 50px, self.width - 220px));
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.divider;
+            }
+            ListView {
+                for row in root.rows: Rectangle {
+                    height: row.is_header ? 26px : 28px;
+                    background: row.is_header ? Theme.group_header_bg
+                        : (prow.has-hover ? Theme.hover_bg : transparent);
+                    prow := TouchArea { }
+                    // ホバーでフルパスのツールチップ（ファイル行のみ。dup と同方式）。
+                    property <bool> hov: prow.has-hover && !row.is_header;
+                    changed hov => {
+                        if (self.hov) {
+                            root.request_tip(row.tip,
+                                self.absolute-position.x + prow.mouse-x,
+                                self.absolute-position.y + prow.mouse-y);
+                        } else {
+                            root.hide_tip();
+                        }
+                    }
+                    // フォルダ見出し行（コピー/移動時は「dir → 出力先」）。
+                    if row.is_header: HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 12px;
+                        spacing: 6px;
+                        Icon {
+                            source: @image-url("icons/folder.svg");
+                            tint: Theme.text_secondary;
+                            size: 14px;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            min-width: 0;
+                            text: row.header;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.text_secondary;
+                        }
+                    }
+                    // ファイル行（名前のみ＝ファイル名が切れない。右端＝保存フォルダを開く）。
+                    if !row.is_header: HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 8px;
+                        Text {
+                            width: 34px;
+                            text: row.num;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                            color: Theme.text_tertiary;
+                        }
+                        // 変更前（名前のみ。幅は PCols.before・ヘッダ右端ドラッグでリサイズ）。
+                        HorizontalLayout {
+                            width: PCols.before;
+                            spacing: 4px;
+                            // フォルダ対象行のみアイコン（ファイル用 svg は無いため余白で揃える）。
+                            Rectangle {
+                                width: 16px;
+                                if row.is_dir: Icon {
+                                    source: @image-url("icons/folder.svg");
+                                    tint: Theme.text_tertiary;
+                                    size: 14px;
+                                }
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                min-width: 0;
+                                text: row.before_name;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                color: Theme.text_secondary;
+                            }
+                        }
+                        Text {
+                            width: 22px;
+                            text: "→";
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            color: Theme.text_tertiary;
+                        }
+                        // 変更後（変更=accent / 重複・空名=danger / 不変=グレー）。
+                        Text {
+                            horizontal-stretch: 1;
+                            min-width: 0;
+                            text: row.after_name;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            font-weight: row.changed ? 600 : 400;
+                            color: row.conflict ? Theme.danger
+                                : (row.changed ? Theme.accent : Theme.text_tertiary);
+                        }
+                        // 保存フォルダを開く（最右列に常時設置・実機 FB #10。条件表示は
+                        // アイコンへ移動中に行ホバーが外れてクリックが届かないため常時表示。
+                        // 絵文字は豆腐化するため SVG アイコンを使う）。
+                        Rectangle {
+                            width: 26px;
+                            height: 24px;
+                            border-radius: Theme.radius_ctrl;
+                            background: ota.has-hover ? Theme.hover_bg : transparent;
+                            ota := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.open_entry(row.num);
+                                }
+                            }
+                            Icon {
+                                source: @image-url("icons/folder.svg");
+                                tint: ota.has-hover ? Theme.fg : Theme.text_tertiary;
+                                size: 14px;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if root.rows.length == 0: Text {
+            text: root.rename_root != "（未選択）" && root.steps.length > 0
+                ? "このフォルダに対象ファイルはありません"
+                : "プレビューはここに表示されます";
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            color: Theme.text_secondary;
+        }
+        if root.is_searching: TouchArea {
+            mouse-cursor: wait;
+        }
+    }
+
+    // レシピ保存/呼出/削除のフライアウト（C-M4・モック準拠）。
+    // 位置はページ右上（レシピボタン付近）へ固定寄せ（dup_search の more_menu と同方式＝
+    // id の絶対座標参照はバインディングループになるため使わない）。
+    recipe_menu := PopupWindow {
+        x: root.width - self.width - Theme.pane_padding - 200px;
+        y: 92px;
+        width: 280px;
+        close-policy: close-on-click-outside;
+        Rectangle {
+            background: Theme.layer2;
+            border-color: Theme.card_border;
+            border-width: 1px;
+            border-radius: Theme.radius_card;
+            VerticalLayout {
+                padding: 10px;
+                spacing: 6px;
+                Text {
+                    text: "現在のレシピを保存";
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: Theme.text_secondary;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    save_name := LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: "レシピ名";
+                    }
+                    CmdButton {
+                        text: "保存";
+                        primary: true;
+                        enabled: root.steps.length > 0;
+                        clicked => {
+                            root.recipe_save(save_name.text);
+                            save_name.text = "";
+                            recipe_menu.close();
+                        }
+                    }
+                }
+                Rectangle {
+                    height: 1px;
+                    background: Theme.divider;
+                }
+                Text {
+                    text: "保存済みレシピ";
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: Theme.text_secondary;
+                }
+                if root.recipes.length == 0: Text {
+                    text: "保存済みのレシピはありません";
+                    font-size: 12px;
+                    color: Theme.text_tertiary;
+                }
+                for r in root.recipes: Rectangle {
+                    height: 30px;
+                    border-radius: Theme.radius_ctrl;
+                    background: rta.has-hover ? Theme.hover_bg : transparent;
+                    rta := TouchArea {
+                        clicked => {
+                            root.recipe_load(r.name);
+                            recipe_menu.close();
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 4px;
+                        spacing: 6px;
+                        Text {
+                            horizontal-stretch: 1;
+                            min-width: 0;
+                            text: r.name;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            color: Theme.fg;
+                        }
+                        Text {
+                            text: r.count + " ステップ";
+                            vertical-alignment: center;
+                            font-size: 11px;
+                            color: Theme.text_tertiary;
+                        }
+                        SmallBtn {
+                            glyph: "×";
+                            danger: true;
+                            clicked => {
+                                root.recipe_delete(r.name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

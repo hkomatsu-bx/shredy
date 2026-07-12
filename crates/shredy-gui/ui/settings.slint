@@ -1,0 +1,438 @@
+// オプション設定ページ（§3.8）。AppConfig の編集 UI。
+// 値は `s`（SettingsView）から一方向表示、変更は set_bool/int/text コールバックでキー名指定して
+// Rust（wiring::settings）へ通知し、core 設定へ即反映・即保存する。
+// レイアウトは左カテゴリナビ型（案A）：左にカテゴリ列、右に選択カテゴリの設定ペイン。
+import { CheckBox, ComboBox, LineEdit, SpinBox, ScrollView, Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { SettingsView } from "types.slint";
+
+// カード（設定グループ）。見出し＋行を縦に並べる。
+component SettingsCard inherits Rectangle {
+    in property <string> title;
+    background: Theme.layer;
+    border-width: 1px;
+    border-color: Theme.card_border;
+    border-radius: Theme.radius_card;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 2px;
+        Text {
+            text: root.title;
+            font-size: 14px;
+            font-weight: 600;
+            color: Theme.fg;
+            height: 26px;
+            vertical-alignment: center;
+        }
+        @children
+    }
+}
+
+// 1 設定行（左にラベル、右にコントロール）。
+component SettingsRow inherits Rectangle {
+    in property <string> label;
+    height: 40px;
+    HorizontalLayout {
+        spacing: 10px;
+        Text {
+            text: root.label;
+            color: Theme.text_secondary;
+            font-size: 13px;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        @children
+    }
+}
+
+// 左ナビのカテゴリ項目（ラベル＋選択ハイライト＋左端アクセントバー）。
+component CategoryItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+    height: 38px;
+    border-radius: Theme.radius_ctrl;
+    background: root.selected ? Theme.row_sel : (ta.has-hover ? Theme.hover_bg : transparent);
+    animate background { duration: 80ms; }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 12px;
+        Text {
+            text: root.label;
+            color: root.selected ? Theme.fg : Theme.text_secondary;
+            font-size: 13px;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+    // 選択中インジケータ。
+    if root.selected: Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: 3px;
+        height: 18px;
+        background: Theme.accent;
+        border-radius: 1.5px;
+    }
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// 設定ダイアログ（app.slint）に埋め込まれる本体。見出し・余白・背景はダイアログ側が持つ。
+export component SettingsPage inherits Rectangle {
+    in property <SettingsView> s;
+    // 表示中のカテゴリ（0=比較方式 … 5=外観）。状態は保存せずセッション内のみ。
+    in-out property <int> active_category: 0;
+    callback set_bool(string, bool);
+    callback set_int(string, int);
+    callback set_text(string, string);
+    // 既定値に戻す（22 設定項目のみ・確認ダイアログは app.slint 側）。
+    callback reset_settings();
+
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: 16px;
+
+        // ── 左：カテゴリナビ（矢印キーで移動可能 / A11y） ──
+        FocusScope {
+            width: 180px;
+            key-pressed(event) => {
+                if (event.text == Key.UpArrow) {
+                    root.active_category = Math.max(0, root.active_category - 1);
+                    return accept;
+                }
+                if (event.text == Key.DownArrow) {
+                    root.active_category = Math.min(5, root.active_category + 1);
+                    return accept;
+                }
+                return reject;
+            }
+            VerticalLayout {
+                padding: 0;
+                spacing: 4px;
+                alignment: start;
+                CategoryItem {
+                    label: "比較方式";
+                    selected: root.active_category == 0;
+                    clicked => {
+                        root.active_category = 0;
+                    }
+                }
+                CategoryItem {
+                    label: "検索フィルタ";
+                    selected: root.active_category == 1;
+                    clicked => {
+                        root.active_category = 1;
+                    }
+                }
+                CategoryItem {
+                    label: "削除動作";
+                    selected: root.active_category == 2;
+                    clicked => {
+                        root.active_category = 2;
+                    }
+                }
+                CategoryItem {
+                    label: "パフォーマンス";
+                    selected: root.active_category == 3;
+                    clicked => {
+                        root.active_category = 3;
+                    }
+                }
+                CategoryItem {
+                    label: "ログ";
+                    selected: root.active_category == 4;
+                    clicked => {
+                        root.active_category = 4;
+                    }
+                }
+                CategoryItem {
+                    label: "外観";
+                    selected: root.active_category == 5;
+                    clicked => {
+                        root.active_category = 5;
+                    }
+                }
+            }
+        }
+
+        // ── 右：選択カテゴリの設定ペイン ──
+        VerticalLayout {
+            spacing: 12px;
+            horizontal-stretch: 1;
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    spacing: 12px;
+                    padding-right: 4px;
+                    padding-bottom: 16px;
+                    alignment: start;
+
+                    // ── 比較方式 ──
+                    if root.active_category == 0: SettingsCard {
+                        title: "比較方式";
+                        SettingsRow {
+                            label: "比較方式";
+                            ComboBox {
+                                width: 220px;
+                                model: ["ハッシュ (BLAKE3)", "ハッシュ (SHA-256)", "ハッシュ (XXH3-128)", "部分一致", "名前+サイズ+日付", "名前+サイズ", "名前のみ", "Office 類似度", "画像類似度"];
+                                current-index: root.s.compare_method;
+                                selected(i) => {
+                                    root.set_int("compare_method", self.current-index);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "画像類似度しきい値 (%)";
+                            SpinBox {
+                                width: 120px;
+                                minimum: 0;
+                                maximum: 100;
+                                value: root.s.image_threshold;
+                                edited(v) => {
+                                    root.set_int("image_threshold", v);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "Office 類似度に書式も含める";
+                            CheckBox {
+                                checked: root.s.office_include_style;
+                                toggled => {
+                                    root.set_bool("office_include_style", self.checked);
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 検索フィルタ ──
+                    if root.active_category == 1: SettingsCard {
+                        title: "検索フィルタ";
+                        SettingsRow {
+                            label: "システムフォルダを除外";
+                            CheckBox {
+                                checked: root.s.exclude_system;
+                                toggled => {
+                                    root.set_bool("exclude_system", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "0 バイトファイルを除外";
+                            CheckBox {
+                                checked: root.s.exclude_zero;
+                                toggled => {
+                                    root.set_bool("exclude_zero", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "OneDrive オンデマンドファイルを除外";
+                            CheckBox {
+                                checked: root.s.exclude_onedrive;
+                                toggled => {
+                                    root.set_bool("exclude_onedrive", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "最小ファイルサイズ (0=無制限)";
+                            LineEdit {
+                                width: 160px;
+                                text: root.s.size_min;
+                                edited(t) => {
+                                    root.set_text("size_min", t);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "最大ファイルサイズ (0=無制限)";
+                            LineEdit {
+                                width: 160px;
+                                text: root.s.size_max;
+                                edited(t) => {
+                                    root.set_text("size_max", t);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "サイズ単位";
+                            ComboBox {
+                                width: 120px;
+                                model: ["Byte", "KB", "MB"];
+                                current-index: root.s.size_unit;
+                                selected(i) => {
+                                    root.set_int("size_unit", self.current-index);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "許可する拡張子 (; 区切り・空=全て)";
+                            LineEdit {
+                                width: 220px;
+                                placeholder-text: "例: jpg;png;docx";
+                                text: root.s.include_ext;
+                                edited(t) => {
+                                    root.set_text("include_ext", t);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "除外ファイルパターン (; , 区切り)";
+                            LineEdit {
+                                width: 220px;
+                                placeholder-text: "例: *.exe;*.dll";
+                                text: root.s.exclude_pat;
+                                edited(t) => {
+                                    root.set_text("exclude_pat", t);
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 削除動作 ──
+                    if root.active_category == 2: SettingsCard {
+                        title: "削除動作";
+                        SettingsRow {
+                            label: "ごみ箱を使用する";
+                            CheckBox {
+                                checked: root.s.use_recycle;
+                                toggled => {
+                                    root.set_bool("use_recycle", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "削除前に確認を求める";
+                            CheckBox {
+                                checked: root.s.confirm_delete;
+                                toggled => {
+                                    root.set_bool("confirm_delete", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "削除履歴ログを保存する";
+                            CheckBox {
+                                checked: root.s.save_log;
+                                toggled => {
+                                    root.set_bool("save_log", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "削除後にリストを更新する";
+                            CheckBox {
+                                checked: root.s.update_list;
+                                toggled => {
+                                    root.set_bool("update_list", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "読み取り専用ファイルの削除を許可する";
+                            CheckBox {
+                                checked: root.s.delete_readonly;
+                                toggled => {
+                                    root.set_bool("delete_readonly", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "残すファイルの判定基準";
+                            ComboBox {
+                                width: 220px;
+                                model: ["更新日（最新）", "更新日（最古）", "パス順（昇順）", "パス順（降順）", "パス長（短）", "パス長（長）"];
+                                current-index: root.s.keep_rule;
+                                selected(i) => {
+                                    root.set_int("keep_rule", self.current-index);
+                                }
+                            }
+                        }
+                    }
+
+                    // ── パフォーマンス ──
+                    if root.active_category == 3: SettingsCard {
+                        title: "パフォーマンス";
+                        SettingsRow {
+                            label: "ハッシュキャッシュを利用する";
+                            CheckBox {
+                                checked: root.s.use_cache;
+                                toggled => {
+                                    root.set_bool("use_cache", self.checked);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "シンボリックリンク・ジャンクションをたどる";
+                            CheckBox {
+                                checked: root.s.follow_symlinks;
+                                toggled => {
+                                    root.set_bool("follow_symlinks", self.checked);
+                                }
+                            }
+                        }
+                    }
+
+                    // ── ログ ──
+                    if root.active_category == 4: SettingsCard {
+                        title: "ログ";
+                        SettingsRow {
+                            label: "ログ出力レベル";
+                            ComboBox {
+                                width: 160px;
+                                model: ["Trace", "Debug", "Information", "Warning", "Error", "Critical", "None"];
+                                current-index: root.s.log_level;
+                                selected(i) => {
+                                    root.set_int("log_level", self.current-index);
+                                }
+                            }
+                        }
+                        SettingsRow {
+                            label: "対象フォルダのチェック状態を保存する";
+                            CheckBox {
+                                checked: root.s.save_folder_state;
+                                toggled => {
+                                    root.set_bool("save_folder_state", self.checked);
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 外観 ──
+                    if root.active_category == 5: SettingsCard {
+                        title: "外観";
+                        SettingsRow {
+                            label: "テーマ";
+                            ComboBox {
+                                width: 200px;
+                                model: ["System（OS 追従）", "Light", "Dark"];
+                                current-index: root.s.theme;
+                                selected(i) => {
+                                    root.set_int("theme", self.current-index);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 末尾：既定値に戻す（確認は app.slint 側のダイアログ） ──
+            HorizontalLayout {
+                alignment: end;
+                padding-right: 4px;
+                Button {
+                    text: "既定値に戻す";
+                    clicked => {
+                        root.reset_settings();
+                    }
+                }
+            }
+        }
+    }
+}

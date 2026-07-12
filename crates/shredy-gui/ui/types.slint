@@ -1,0 +1,186 @@
+// Slint ↔ Rust 共有データ構造（設計 §3.3）。
+// Rust 側 view::refresh_ui が core 結果から bridge::convert ヘルパで直接構築する。
+
+// 単色 SVG アイコン（`colorize` でテーマ色に着色＝モノクロ統一, U12 polish 2）。
+// 呼び出し側で `source: @image-url("icons/xxx.svg")`・`tint`・`size` を指定する。
+//
+// Rectangle 化して縦はセルいっぱいに伸ばし、内部の Image を既定中央配置にすることで、
+// 行高より小さいアイコンの「上付き」を解消する（Image.vertical-alignment は画像内容の
+// 整列であってレイアウト内の要素位置を動かさないため, polish3 item1）。
+export component Icon inherits Rectangle {
+    in property <image> source;
+    in property <brush> tint;
+    in property <length> size: 16px;
+    width: root.size; // 横は固定。縦は親セルいっぱいに伸び、内部画像を中央化
+    Image {
+        source: root.source;
+        colorize: root.tint;
+        image-fit: contain;
+        width: root.size;
+        height: root.size;
+    }
+}
+
+// 画面ページ（U12 M5。セクション付きナビの遷移先）。
+// 重複検索のみ実装済み、他はプレースホルダ（後続 B/C/D・H-M5）。
+export enum Page {
+    DupSearch,
+    UtilEmpty,
+    UtilTemp,
+    UtilLarge,
+    UtilCorrupt,
+    UtilExt,
+    UtilSymlink,
+    UtilThumbnail,
+    UtilExifStrip,
+    BulkRename,
+}
+
+// 結果一覧の 1 行（ヘッダ行とファイル行を平坦化した単一モデル, U12 perf）。
+// `ListView` で仮想化するため、グループのネストを廃して 1 本のリストにする。
+// `is_header=true` の行はグループ見出し（`header` のみ有効）、それ以外はファイル行。
+// `gi`/`fi` は元の重複グループ座標（選択済みフィルタで絞っても座標を保つ）。
+export struct ListRow {
+    is_header: bool,
+    header: string,  // グループ見出し（is_header 時のみ）
+    gi: int,         // 重複グループ index
+    fi: int,         // グループ内ファイル index（ヘッダ行は -1）
+    name: string,
+    folder: string,
+    size_text: string,
+    modified: string, // 更新日時 yyyy/mm/dd HH:MM:SS
+    checked: bool,    // 削除選択（複数可・§3.4）
+    locked: bool,     // ロックマーク（削除対象外）
+    has_error: bool,  // アクセス不可等
+}
+
+// 結果一覧の列幅（リサイズ可・セッション内のみ保持, U12 M7 / polish3）。
+// ヘッダと各行が同一の Cols を参照して列を揃える。全列が明示幅を持ち、末尾の伸縮
+// スペーサが余白を吸収する（各列を独立にリサイズでき、場所列が巻き込まれない）。
+export global Cols {
+    // 初期幅は既定ウィンドウ（content 幅）に収まるよう控えめに（合計+余白88 がペインを超えないこと, polish3）。
+    in-out property <length> name: 190px;
+    in-out property <length> place: 210px;
+    in-out property <length> size: 76px;
+    in-out property <length> modified: 124px;
+    in-out property <length> state: 68px;
+    out property <length> min: 60px;
+    // 全列 + 列以外の固定消費（pad-left 8 + check 20 + spacing 8×5 + 末尾 spacing 8 + pad-right 12 = 88px）。
+    // 横スクロールの内容幅（§3.7 #3）。これがペイン幅を超えるとスクロールバーを出す。
+    out property <length> content_w: self.name + self.place + self.size + self.modified + self.state + 88px;
+}
+
+// 対象フォルダ一覧の 1 行（§5 TargetFolders）。
+export struct FolderRow {
+    path: string,
+    checked: bool, // 検索対象に含めるか
+}
+
+// ユーティリティスキャン（§3.9）結果一覧の 1 行（グループなしのフラット一覧）。
+// Rust 側 view::refresh_util が UtilityItem から構築する。`idx` は core 側の絶対 index。
+export struct UtilRow {
+    idx: int,          // core の util_items index（チェック/操作で参照）
+    name: string,
+    folder: string,    // 場所（親フォルダ）
+    size_text: string, // フォルダ・リンクは "—"
+    modified: string,  // 更新日時 yyyy/mm/dd HH:MM:SS
+    detail: string,    // 種別固有（一時=カテゴリ / 拡張子不正=実体・拡張子 / 無効リンク=リンク先）
+    is_dir: bool,      // フォルダ/ファイル区別アイコン（§3.9.1）
+    checked: bool,     // 削除選択（複数可・§3.4）
+    locked: bool,      // ロック（削除/隔離から除外・§3.4）
+}
+
+// 画像メタデータ除去（§3.10.3・EXIF）の候補一覧 1 行。
+export struct ExifRow {
+    idx: int,          // core の exif_items index（チェック/操作で参照）
+    name: string,
+    folder: string,    // 場所（親フォルダ）
+    size_text: string,
+    ext: string,       // 拡張子（大文字・JPEG/PNG/WEBP）
+    checked: bool,     // 除去対象の選択（複数可）
+}
+
+// プレビューの形式固有メタデータ 1 行（§3.1#2。Office/ZIP 等の (ラベル, 値)）。
+export struct FormatField {
+    key: string,
+    value: string,
+}
+
+// 一括リネーム（§3.10.1）のレシピ・ステップ一覧の 1 行。
+// 行クリックで選択し、下のインラインエディタで編集する（モック準拠）。
+export struct RenameStepRow {
+    idx: int,        // rename_steps の index（操作で参照）
+    name: string,    // 方式名（bridge::rename::method_name）
+    summary: string, // 設定要約（bridge::rename::step_summary）
+    enabled: bool,   // 有効/無効（無効はパイプラインでスキップ）
+}
+
+// 一括リネームのプレビュー 1 行。フォルダごとにグループヘッダー行を挟み（重複検索と同様）、
+// ファイル行は名前のみ表示する（ファイル名が切れない・実機 FB 3 巡目）。
+// フルパスは行ホバーのツールチップで示す。コピー/移動時はヘッダーに「→ 出力先」を併記。
+export struct RenamePreviewRow {
+    is_header: bool,    // フォルダ見出し行（header のみ有効）
+    header: string,     // フォルダパス（コピー/移動時は「dir → 出力先」）
+    num: int,           // 1 始まりの通し番号（フィルタ時も元の連番を維持）
+    is_dir: bool,       // フォルダ行（アイコン区別）
+    before_name: string,
+    after_name: string,
+    tip: string,        // ツールチップ（変更前フルパス → 変更後フルパス）
+    changed: bool,      // 名前が変化（accent 色）
+    conflict: bool,     // 同名重複・空名（danger 色）
+}
+
+// 保存済みリネームレシピの 1 行（レシピフライアウト）。
+export struct RecipeRow {
+    name: string,
+    count: int, // ステップ数
+}
+
+// フォルダ比較（§3.7）結果一覧の 1 行。
+export struct DiffRow {
+    rel_path: string,
+    kind: int,       // 0=OnlyA / 1=OnlyB / 2=Common / 3=SizeDiff
+    size_a: string,  // "" = 表示なし（"—"）
+    size_b: string,
+}
+
+// フォルダ比較ダイアログの列幅（リサイズ可・セッション内のみ保持）。
+// path 初期値は ComboBox 幅（= path - 54px）と連動し、分類列とドロップダウン右端が揃う。
+export global DiffCols {
+    in-out property <length> path: 450px;
+    out property <length> min: 60px;
+}
+
+// オプション設定画面（§3.8）の表示状態。Rust 側 view::settings_view が AppConfig から構築し、
+// 変更は set_setting_bool/int/text の各コールバックでキー名指定して core 設定へ反映する。
+// index 系は core の enum 宣言順（System=0 等）に対応する。
+export struct SettingsView {
+    // ファイル比較
+    compare_method: int,        // CompareMethod index 0..8
+    image_threshold: int,       // 画像類似度しきい値 0..100
+    office_include_style: bool, // false=ContentOnly / true=IncludeStyle
+    exclude_system: bool,
+    exclude_zero: bool,
+    exclude_onedrive: bool,     // OneDrive オンデマンド（クラウドのみ）ファイルを走査から除外
+    // 検索フィルタ（サイズは u64 のため文字列で授受）
+    size_min: string,
+    size_max: string,
+    size_unit: int,             // 0=Byte / 1=KB / 2=MB
+    include_ext: string,
+    exclude_pat: string,
+    // 削除動作
+    use_recycle: bool,
+    confirm_delete: bool,
+    save_log: bool,
+    update_list: bool,
+    delete_readonly: bool,
+    // ファイル選択
+    keep_rule: int,             // KeepFileRule index 0..5
+    save_folder_state: bool,
+    // メンテナンス・診断
+    use_cache: bool,
+    log_level: int,             // LogLevelConfig index 0..6
+    follow_symlinks: bool,
+    // 外観
+    theme: int,                 // AppTheme index 0..2
+}

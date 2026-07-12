@@ -1,0 +1,29 @@
+[package]
+name = "shredy-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shredy command-line frontend (shredy.exe)."
+
+[[bin]]
+name = "shredy"
+path = "src/main.rs"
+
+[features]
+# CLI は画像類似度 S8 で HEIC/HEIF を扱うため既定で heic を有効化する。
+# 配布ビルドで AGPL を避けたい／サイズを抑えたい場合は `--no-default-features` で除外する
+# （その場合 HEIC/HEIF は S8 の対象外となる）。
+default = ["heic"]
+heic = ["shredy-core/heic"]
+
+[dependencies]
+shredy-core = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+ctrlc = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+image = { workspace = true }

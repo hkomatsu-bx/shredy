@@ -1,0 +1,477 @@
+// 画像メタデータ除去ページ（§3.10.3・ユーティリティ（整理））。
+// 削除ではなく「その場で EXIF を除去（上書き）」する変換操作のため、検出ユーティリティの
+// 共用ページ（UtilitySearchPage）とは分離した専用ページ。対象フォルダ管理は重複検索・検出
+// ユーティリティと共通の target_folders を再利用する。
+import { ListView, ScrollView, CheckBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { ExifRow, FolderRow } from "types.slint";
+import { CmdButton, FolderItem } from "dup_search.slint";
+
+// 結果一覧の列幅（ヘッダと行で共有・固定）。
+global ECols {
+    in-out property <length> name: 260px;
+    in-out property <length> place: 320px;
+    in-out property <length> size: 90px;
+    in-out property <length> ext: 40px;
+    out property <length> min: 60px;
+    // 全列 + 列以外の固定消費（pad-left 8 + check 20 + spacing 8×4 + pad-right 12 = 80px）。
+    // 横スクロールの内容幅（§3.7 #3）。列リサイズで超過するとスクロールバーを出す。
+    out property <length> content_w: self.name + self.place + self.size + self.ext + 80px;
+}
+
+// 1 候補行（チェック＋名前＋場所＋サイズ＋形式）。チェック=除去対象の選択。
+component ExifItemRow inherits Rectangle {
+    in property <ExifRow> entry;
+    // 横スクロール量（§3.7 #3）。列の内容だけ左へずらす。
+    in property <length> h_offset: 0px;
+    callback check_toggled();
+
+    height: Theme.row_height;
+    background: ta.has-hover ? Theme.hover_bg : transparent;
+
+    ta := TouchArea {
+        clicked => {
+            root.check_toggled();
+        }
+    }
+
+    HorizontalLayout {
+        // 内容幅に束縛し h_offset ぶん左へずらす（ヘッダと同期, §3.7 #3）。超過分は上位 clip が処理。
+        width: ECols.content_w;
+        x: -root.h_offset;
+        padding-left: 8px;
+        padding-right: 12px;
+        spacing: 8px;
+        Rectangle {
+            width: 20px;
+            CheckBox {
+                checked: root.entry.checked;
+                toggled => {
+                    root.check_toggled();
+                }
+                accessible-label: "除去対象に選択";
+            }
+        }
+        Text {
+            width: ECols.name;
+            text: root.entry.name;
+            vertical-alignment: center;
+            overflow: elide;
+            color: Theme.fg;
+        }
+        Text {
+            width: ECols.place;
+            text: root.entry.folder;
+            vertical-alignment: center;
+            overflow: elide;
+            color: Theme.text_secondary;
+        }
+        Text {
+            width: ECols.size;
+            text: root.entry.size_text;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+            color: Theme.fg;
+        }
+        Text {
+            width: ECols.ext;
+            text: root.entry.ext;
+            vertical-alignment: center;
+            color: Theme.text_secondary;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+    }
+}
+
+export component ExifStripPage inherits VerticalLayout {
+    in property <string> title;
+    in property <[ExifRow]> rows;
+    in property <[FolderRow]> target_folders;
+    in property <int> folders_checked: 0;
+    in property <bool> is_searching: false;
+    in property <string> status_text: "";
+    in property <int> found_count: 0;
+    in property <int> checked_count: 0;
+    in property <bool> backup_on: false;
+
+    callback scan_clicked();
+    callback cancel_clicked();
+    callback select_all();
+    callback clear_selection();
+    callback request_strip();
+    callback set_backup(bool);
+    callback check_toggled(int);
+    callback add_folder();
+    callback remove_folder(int);
+    callback toggle_folder(int);
+    callback check_all_folders();
+    callback uncheck_all_folders();
+    callback remove_all_folders();
+
+    // 横スクロール状態（§3.7 #3）。list_pane_w=一覧コンテナ実幅（list_pane.width 遅延参照）、
+    // h_offset=横スクロール量、eff_offset=[0,max] クランプ実効値（描画に使う）。
+    property <length> list_pane_w: list_pane.width;
+    property <length> max_h_offset: max(0px, ECols.content_w - root.list_pane_w);
+    property <length> h_offset: 0px;
+    property <length> eff_offset: min(max(0px, root.h_offset), root.max_h_offset);
+
+    padding: Theme.pane_padding;
+    spacing: 10px;
+
+    // 機能名見出し。
+    Text {
+        text: root.title;
+        font-size: 18px;
+        font-weight: 700;
+        color: Theme.fg;
+    }
+    // 補足説明（既知の制限を明示）。
+    Text {
+        text: "対象: JPEG / PNG / WebP の EXIF。再エンコードせず画質を保ったまま除去します。TIFF は非対応・XMP は残ります。";
+        wrap: word-wrap;
+        font-size: 12px;
+        color: Theme.text_secondary;
+    }
+
+    // 対象フォルダ管理パネル（重複検索・検出ユーティリティと共通の TargetFolders）。
+    Rectangle {
+        border-radius: 6px;
+        background: Theme.group_header_bg;
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "対象フォルダ";
+                    vertical-alignment: center;
+                    font-weight: 700;
+                    color: Theme.fg;
+                }
+                Text {
+                    text: root.folders_checked + " / " + root.target_folders.length + " 選択";
+                    vertical-alignment: center;
+                    color: Theme.text_secondary;
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                CmdButton {
+                    text: "全て選択";
+                    enabled: !root.is_searching && root.target_folders.length > 0;
+                    clicked => {
+                        root.check_all_folders();
+                    }
+                }
+                CmdButton {
+                    text: "全て解除";
+                    enabled: !root.is_searching && root.target_folders.length > 0;
+                    clicked => {
+                        root.uncheck_all_folders();
+                    }
+                }
+                CmdButton {
+                    text: "全て削除";
+                    danger_text: true;
+                    enabled: !root.is_searching && root.target_folders.length > 0;
+                    clicked => {
+                        root.remove_all_folders();
+                    }
+                }
+                CmdButton {
+                    text: "＋ フォルダ追加";
+                    outlined: true;
+                    enabled: !root.is_searching;
+                    clicked => {
+                        root.add_folder();
+                    }
+                }
+            }
+            ScrollView {
+                min-height: 88px;
+                max-height: 120px;
+                vertical-stretch: 0;
+                VerticalLayout {
+                    alignment: start;
+                    if root.target_folders.length == 0: Text {
+                        text: "（未設定）「フォルダ追加」で対象を追加してください";
+                        color: Theme.fg;
+                        height: 28px;
+                        vertical-alignment: center;
+                    }
+                    for folder[i] in root.target_folders: FolderItem {
+                        folder: folder;
+                        enabled: !root.is_searching;
+                        toggled => {
+                            root.toggle_folder(i);
+                        }
+                        removed => {
+                            root.remove_folder(i);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // アクションバー。
+    Rectangle {
+        border-radius: Theme.radius_card;
+        background: Theme.layer;
+        border-width: 1px;
+        border-color: Theme.card_border;
+        vertical-stretch: 0;
+        height: 46px;
+        HorizontalLayout {
+            padding: 6px;
+            spacing: 4px;
+            alignment: start;
+            CmdButton {
+                width: 112px;
+                text: root.is_searching ? "中断" : "スキャン開始";
+                icon: root.is_searching ? @image-url("icons/stop.svg") : @image-url("icons/play.svg");
+                primary: !root.is_searching;
+                clicked => {
+                    if (root.is_searching) {
+                        root.cancel_clicked();
+                    } else {
+                        root.scan_clicked();
+                    }
+                }
+            }
+            CmdButton {
+                text: "全選択";
+                icon: @image-url("icons/check-all.svg");
+                enabled: !root.is_searching && root.found_count > 0;
+                clicked => {
+                    root.select_all();
+                }
+            }
+            CmdButton {
+                text: "全選択解除";
+                icon: @image-url("icons/deselect.svg");
+                enabled: !root.is_searching && root.checked_count > 0;
+                clicked => {
+                    root.clear_selection();
+                }
+            }
+            CmdButton {
+                text: "EXIF を除去";
+                icon: @image-url("icons/rotate.svg");
+                primary: true;
+                badge: root.checked_count;
+                enabled: !root.is_searching && root.checked_count > 0;
+                clicked => {
+                    root.request_strip();
+                }
+            }
+            // バックアップ（元ファイルを .bak へ退避）。
+            Rectangle {
+                horizontal-stretch: 0;
+                width: bk.preferred-width + 12px;
+                bk := CheckBox {
+                    text: "バックアップ (.bak) を作成";
+                    checked: root.backup_on;
+                    enabled: !root.is_searching;
+                    toggled => {
+                        root.set_backup(self.checked);
+                    }
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+        }
+    }
+
+    // サマリバー（件数・選択・直近の処理結果）。
+    Rectangle {
+        height: 40px;
+        border-radius: Theme.radius_card;
+        background: Theme.layer;
+        border-width: 1px;
+        border-color: Theme.card_border;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 16px;
+            Text {
+                text: root.found_count + " 件検出";
+                vertical-alignment: center;
+                font-weight: 700;
+                color: Theme.fg;
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            if root.checked_count > 0: Text {
+                text: root.checked_count + " 件選択中";
+                vertical-alignment: center;
+                font-weight: 600;
+                color: #7c3ac8;
+            }
+        }
+    }
+
+    // 候補一覧（ヘッダ＋一覧）。実幅は list_pane.width として root.list_pane_w が遅延参照（§3.7 #3）。
+    list_pane := Rectangle {
+        vertical-stretch: 1;
+        clip: true;
+        min-width: 0px;
+        VerticalLayout {
+            Rectangle {
+                height: 30px;
+                background: Theme.group_header_bg;
+                clip: true;
+                HorizontalLayout {
+                    width: ECols.content_w;
+                    x: -root.eff_offset;
+                    padding-left: 8px;
+                    padding-right: 12px;
+                    spacing: 8px;
+                    Rectangle {
+                        width: 20px;
+                    }
+                    Text {
+                        width: ECols.name;
+                        text: "名前";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    Text {
+                        width: ECols.place;
+                        text: "場所";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    Text {
+                        width: ECols.size;
+                        text: "サイズ";
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    Text {
+                        width: ECols.ext;
+                        text: "形式";
+                        vertical-alignment: center;
+                        font-size: 12px;
+                        color: Theme.text_secondary;
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                }
+                // 列リサイズ（dup/util_search と同方式: ヘッダ全幅 TouchArea。pointer x から幅決定）。
+                // 名前左端 = padding 8 + チェック 20 + spacing 8 = 36px。ext は末尾＝リサイズ対象外。
+                // 内容幅・x オフセットをヘッダ HL と一致させ mouse-x を内容座標に揃える（§3.7 #3）。
+                resize_ta := TouchArea {
+                    width: ECols.content_w;
+                    x: -root.eff_offset;
+                    height: parent.height;
+                    property <length> name_edge: 36px + ECols.name;
+                    property <length> place_edge: self.name_edge + 8px + ECols.place;
+                    property <length> size_edge: self.place_edge + 8px + ECols.size;
+                    property <int> drag_col: -1;
+                    mouse-cursor: (abs(self.mouse-x - self.name_edge) < 8px
+                        || abs(self.mouse-x - self.place_edge) < 8px
+                        || abs(self.mouse-x - self.size_edge) < 8px)
+                        ? MouseCursor.col-resize : MouseCursor.default;
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down) {
+                            if (abs(self.mouse-x - self.name_edge) < 8px) {
+                                self.drag_col = 0;
+                            } else if (abs(self.mouse-x - self.place_edge) < 8px) {
+                                self.drag_col = 1;
+                            } else if (abs(self.mouse-x - self.size_edge) < 8px) {
+                                self.drag_col = 2;
+                            } else {
+                                self.drag_col = -1;
+                            }
+                        }
+                        if (e.kind == PointerEventKind.up) {
+                            self.drag_col = -1;
+                        }
+                    }
+                    moved => {
+                        // 上限クランプ無し＝ペイン幅超に拡張可能（横スクロールで到達, §3.7 #3）。
+                        if (self.drag_col == 0) {
+                            ECols.name = max(ECols.min, self.mouse-x - 36px);
+                        } else if (self.drag_col == 1) {
+                            ECols.place = max(ECols.min, self.mouse-x - self.name_edge - 8px);
+                        } else if (self.drag_col == 2) {
+                            ECols.size = max(ECols.min, self.mouse-x - self.place_edge - 8px);
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.divider;
+            }
+            ListView {
+                for row in root.rows: ExifItemRow {
+                    entry: row;
+                    h_offset: root.eff_offset;
+                    check_toggled => {
+                        root.check_toggled(row.idx);
+                    }
+                }
+            }
+            // 横スクロールバー（§3.7 #3）。常設要素・不要時は height 0＋不可視で畳む（条件 if で
+            // 出し入れすると横 layoutinfo が max_h_offset に依存して循環するため避ける）。
+            // サム幅・位置は確定値 root.list_pane_w / eff_offset 由来（確定幾何を読まない）。
+            Rectangle {
+                height: root.max_h_offset > 0px ? 12px : 0px;
+                visible: root.max_h_offset > 0px;
+                background: Theme.group_header_bg;
+                e_track := TouchArea {
+                    property <length> thumb_w: max(40px, root.list_pane_w * (root.list_pane_w / ECols.content_w));
+                    property <length> travel: max(0px, root.list_pane_w - self.thumb_w);
+                    property <length> thumb_x: root.max_h_offset > 0px ? self.travel * (root.eff_offset / root.max_h_offset) : 0px;
+                    property <length> grab_dx: 0px;
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.down) {
+                            if (self.mouse-x >= self.thumb_x && self.mouse-x <= self.thumb_x + self.thumb_w) {
+                                self.grab_dx = self.mouse-x - self.thumb_x;
+                            } else {
+                                self.grab_dx = self.thumb_w / 2;
+                                root.h_offset = self.travel > 0px
+                                    ? root.max_h_offset * (max(0px, min(self.travel, self.mouse-x - self.grab_dx)) / self.travel)
+                                    : 0px;
+                            }
+                        }
+                    }
+                    moved => {
+                        root.h_offset = self.travel > 0px
+                            ? root.max_h_offset * (max(0px, min(self.travel, self.mouse-x - self.grab_dx)) / self.travel)
+                            : 0px;
+                    }
+                    Rectangle {
+                        x: parent.thumb_x;
+                        y: 2px;
+                        width: parent.thumb_w;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: e_track.has-hover || e_track.pressed ? Theme.text_secondary : Theme.text_tertiary;
+                    }
+                }
+            }
+        }
+
+        if root.found_count == 0 && !root.is_searching: Text {
+            text: "候補画像はここに表示されます（「スキャン開始」を押してください）";
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            color: Theme.text_secondary;
+        }
+        if root.is_searching: TouchArea {
+            mouse-cursor: wait;
+        }
+    }
+}
