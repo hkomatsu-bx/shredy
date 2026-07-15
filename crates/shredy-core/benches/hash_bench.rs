@@ -7,7 +7,7 @@
 
 use std::time::SystemTime;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use shredy_core::compare::{Comparator, HashComparator};
 use shredy_core::{FileEntry, FileSize, LongPath, Method, MockFs};
 

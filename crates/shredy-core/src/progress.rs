@@ -4,9 +4,9 @@
 //! 確認する。GUI フロントエンドでもそのまま再利用できる。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
 
 /// 検索の 3 フェーズ（仕様 §3.2）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

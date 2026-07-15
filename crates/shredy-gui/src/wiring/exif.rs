@@ -12,12 +12,12 @@ use std::time::Instant;
 use slint::ComponentHandle;
 
 use shredy_core::progress::{is_cancelled, new_cancel};
-use shredy_core::{scan_exif_candidates, strip_many, StripOptions};
+use shredy_core::{StripOptions, scan_exif_candidates, strip_many};
 
-use crate::config_io::resolve_roots;
-use crate::state::{lock, AppState};
-use crate::view::{dispatch_ui, refresh_exif};
 use crate::AppWindow;
+use crate::config_io::resolve_roots;
+use crate::state::{AppState, lock};
+use crate::view::{dispatch_ui, refresh_exif};
 
 use super::with_ui;
 

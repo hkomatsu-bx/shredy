@@ -9,7 +9,7 @@ use crate::io::FileReader;
 use crate::model::{DuplicateGroup, FileEntry, Method};
 use crate::path::LongPath;
 use crate::progress::{Cancel, ProgressTx};
-use crate::scan::{detect_nas_majority, Scanner};
+use crate::scan::{Scanner, detect_nas_majority};
 use crate::strategy::{ContentHashStrategy, GroupingStrategy};
 
 /// NAS（対象の過半が UNC）検出時に自動適用する I/O 並列度の上限（NFR-6）。

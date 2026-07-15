@@ -6,12 +6,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 
-use anyhow::{anyhow, bail, Context, Result};
-use shredy_core::progress::{new_cancel, request_cancel, Cancel};
+use anyhow::{Context, Result, anyhow, bail};
+use shredy_core::progress::{Cancel, new_cancel, request_cancel};
 use shredy_core::{
-    load_hash_cache, make_strategy, save_hash_cache, AppConfig, CompareMethod, DuplicateGroup,
-    GroupingStrategy, LongPath, RealFs, ScanConfig, ScanConfigBuilder, SearchEngine,
-    CACHE_FILE_NAME,
+    AppConfig, CACHE_FILE_NAME, CompareMethod, DuplicateGroup, GroupingStrategy, LongPath, RealFs,
+    ScanConfig, ScanConfigBuilder, SearchEngine, load_hash_cache, make_strategy, save_hash_cache,
 };
 
 use crate::args::CliArgs;

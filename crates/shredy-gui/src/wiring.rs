@@ -16,9 +16,9 @@
 
 use shredy_gui::viewmodel::FilterMode;
 
+use crate::AppWindow;
 use crate::state::AppState;
 use crate::view::{refresh_ui, update_file_row};
-use crate::AppWindow;
 
 mod actionbar;
 mod context;

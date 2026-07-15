@@ -4,8 +4,8 @@
 //! 列挙する。総当たり O(N²) を平均 O(N log N) に近づける。距離 0（同一 pHash）は
 //! 同一ノードへ集約する。
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 /// 2 つの pHash のハミング距離（0〜64, 仕様 §3.12）。
 #[must_use]
@@ -140,7 +140,7 @@ mod tests {
                 let mut brute: Vec<usize> = hashes
                     .iter()
                     .enumerate()
-                    .filter(|(_, &h)| hamming(h, q) <= radius)
+                    .filter(|&(_, &h)| hamming(h, q) <= radius)
                     .map(|(i, _)| i)
                     .collect();
                 brute.sort_unstable();

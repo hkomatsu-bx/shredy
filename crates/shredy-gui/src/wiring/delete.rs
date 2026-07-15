@@ -17,9 +17,9 @@ use shredy_core::{
 use shredy_gui::bridge::{groups as group_edit, selection};
 use shredy_gui::viewmodel::SelectionState;
 
-use crate::state::{lock, AppState};
-use crate::view::{delete_dialog_text, dispatch_ui, open_in_explorer, refresh_ui};
 use crate::AppWindow;
+use crate::state::{AppState, lock};
+use crate::view::{delete_dialog_text, dispatch_ui, open_in_explorer, refresh_ui};
 
 use super::with_ui;
 

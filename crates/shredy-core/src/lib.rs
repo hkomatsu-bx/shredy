@@ -51,7 +51,7 @@ pub mod utility;
 
 // 主要な公開型を re-export（Item 24: API に現れる型を入口で提供）。
 pub use cache::{CacheKey, HashCache};
-pub use cache_io::{load_hash_cache, save_hash_cache, CACHE_FILE_NAME};
+pub use cache_io::{CACHE_FILE_NAME, load_hash_cache, save_hash_cache};
 pub use compare::{Comparator, HashComparator};
 pub use config::OfficeSimilarityLevel;
 pub use config::{
@@ -67,27 +67,27 @@ pub use folder_diff::{
     DiffEntry, DiffKind, FolderDiffResult, FolderDiffScanner, FolderDiffSummary,
 };
 pub use image_cleanup::{
-    ext_supports_exif_removal, scan_exif_candidates, strip_image_metadata, strip_many,
-    StripOptions, StripOutcome, StripSummary,
+    StripOptions, StripOutcome, StripSummary, ext_supports_exif_removal, scan_exif_candidates,
+    strip_image_metadata, strip_many,
 };
 pub use imgsim::ImageSimilarityStrategy;
 pub use io::{FileMeta, FileReader, MockFs, RealFs};
-pub use logging::{init_logging, LogReloadHandle};
-pub use metadata::{ext_supports_metadata, extract_metadata, FormatMetadata};
+pub use logging::{LogReloadHandle, init_logging};
+pub use metadata::{FormatMetadata, ext_supports_metadata, extract_metadata};
 pub use model::{DuplicateGroup, FileEntry, FileHash, FileSize, KeepFileRule, Method, PHash};
 pub use office::OfficeSimilarityStrategy;
 pub use path::LongPath;
 pub use progress::{Cancel, Phase, ProgressEvent, ProgressTx};
 pub use rename::{
-    build_plan, execute_rename, parse_filters, CaseConvert, CaseTarget, RecipeStep, RenameEntry,
-    RenameIssue, RenameMode, RenamePlan, RenameRecipe, RenameReport, RenameStep, RenameTargets,
-    RenameUndo, SeqPosition, UndoReport,
+    CaseConvert, CaseTarget, RecipeStep, RenameEntry, RenameIssue, RenameMode, RenamePlan,
+    RenameRecipe, RenameReport, RenameStep, RenameTargets, RenameUndo, SeqPosition, UndoReport,
+    build_plan, execute_rename, parse_filters,
 };
 pub use scan::Scanner;
 pub use select::{LockSet, Selection, Selector};
 pub use strategy::{
-    content_hash_method, make_strategy, ContentHashStrategy, GroupingStrategy, MetadataKind,
-    MetadataStrategy, PartialMatchStrategy,
+    ContentHashStrategy, GroupingStrategy, MetadataKind, MetadataStrategy, PartialMatchStrategy,
+    content_hash_method, make_strategy,
 };
 pub use thumbnail::{
     find_system_thumbcaches, find_thumbnail_cache_items, find_thumbnail_caches, find_thumbs_db,
@@ -95,5 +95,5 @@ pub use thumbnail::{
 };
 pub use util::now_unix_secs;
 pub use utility::{
-    classify_temp, TempCategory, UtilityConfig, UtilityItem, UtilityKind, UtilityScanner,
+    TempCategory, UtilityConfig, UtilityItem, UtilityKind, UtilityScanner, classify_temp,
 };

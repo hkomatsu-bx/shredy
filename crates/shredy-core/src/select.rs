@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::model::{DuplicateGroup, FileEntry, KeepFileRule};
-use crate::path::{comp_keys, LongPath};
+use crate::path::{LongPath, comp_keys};
 use crate::scan::matches_wildcard;
 
 /// パスを大文字小文字無視のキー文字列へ（実装は [`LongPath::case_key`] に集約）。
@@ -259,10 +259,10 @@ impl Selector {
             // 「1つ残す」: 選択条件通過かつ非ロックの件数がグループ全ファイル数と一致した
             // 場合のみ keep を選択解除する。ロック済みが 1 件でもあれば
             // selected_in_group < files.len() となりこの条件は成立しない（安全側に倒れる）。
-            if selected_in_group == group.files.len() {
-                if let Some(keep) = Self::keep_target(group, rule) {
-                    sel.remove(&keep.path);
-                }
+            if selected_in_group == group.files.len()
+                && let Some(keep) = Self::keep_target(group, rule)
+            {
+                sel.remove(&keep.path);
             }
         }
         sel

@@ -103,11 +103,11 @@ impl<'a> Deleter<'a> {
             }
             // fail-closed: 全件削除になるなら keep を 1 件残す。
             let total = group.files.len();
-            if deletable.len() >= total {
-                if let Some(keep) = &keep {
-                    deletable.retain(|p| *p != keep);
-                    plan.skipped.push((keep.clone(), SkipReason::KeptForSafety));
-                }
+            if deletable.len() >= total
+                && let Some(keep) = &keep
+            {
+                deletable.retain(|p| *p != keep);
+                plan.skipped.push((keep.clone(), SkipReason::KeptForSafety));
             }
             for p in deletable {
                 plan.to_delete.push(p.clone());
@@ -284,10 +284,8 @@ impl<'a> Deleter<'a> {
                 "削除対象から除外しました"
             );
         }
-        if save_log {
-            if let Err(e) = DeleteLog::init(config_dir, &start_msg, now_secs) {
-                tracing::warn!(error = %e, "削除ログの初期化に失敗しました");
-            }
+        if save_log && let Err(e) = DeleteLog::init(config_dir, &start_msg, now_secs) {
+            tracing::warn!(error = %e, "削除ログの初期化に失敗しました");
         }
         let report = match op {
             FileOp::Delete(mode) => self.execute(plan, mode),
@@ -613,10 +611,11 @@ mod tests {
         let plan = deleter.plan(&groups, &sel, KeepFileRule::ByDateNewest, &locks, false);
         // ロック済みは削除対象に含まれず、Locked として skip される。
         assert!(!plan.to_delete.contains(&locked));
-        assert!(plan
-            .skipped
-            .iter()
-            .any(|(p, r)| p == &locked && *r == SkipReason::Locked));
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(p, r)| p == &locked && *r == SkipReason::Locked)
+        );
     }
 
     #[test]
@@ -670,14 +669,16 @@ mod tests {
         let deleter = Deleter::new(&fs);
         let plan = deleter.plan_paths(&[a.clone(), b.clone(), c.clone()], &locks, false);
         assert_eq!(plan.to_delete, vec![a]);
-        assert!(plan
-            .skipped
-            .iter()
-            .any(|(p, r)| p == &b && *r == SkipReason::InUse));
-        assert!(plan
-            .skipped
-            .iter()
-            .any(|(p, r)| p == &c && *r == SkipReason::Locked));
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(p, r)| p == &b && *r == SkipReason::InUse)
+        );
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(p, r)| p == &c && *r == SkipReason::Locked)
+        );
     }
 
     #[test]
@@ -698,10 +699,11 @@ mod tests {
             &LockSet::new(),
             false,
         );
-        assert!(plan
-            .skipped
-            .iter()
-            .any(|(p, r)| p == &LongPath::new("C:\\a").unwrap() && *r == SkipReason::InUse));
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(p, r)| p == &LongPath::new("C:\\a").unwrap() && *r == SkipReason::InUse)
+        );
     }
 
     #[test]
@@ -722,10 +724,11 @@ mod tests {
             false,
         );
         assert!(!plan.to_delete.contains(&ro));
-        assert!(plan
-            .skipped
-            .iter()
-            .any(|(p, r)| p == &ro && *r == SkipReason::ReadOnly));
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(p, r)| p == &ro && *r == SkipReason::ReadOnly)
+        );
         // delete_read_only=true: 読み取り専用も削除対象になり得る。
         let plan = deleter.plan(
             &groups,
@@ -755,10 +758,11 @@ mod tests {
             false,
         );
         assert!(!plan.to_delete.contains(&link));
-        assert!(plan
-            .skipped
-            .iter()
-            .any(|(p, r)| p == &link && *r == SkipReason::Reparse));
+        assert!(
+            plan.skipped
+                .iter()
+                .any(|(p, r)| p == &link && *r == SkipReason::Reparse)
+        );
     }
 
     #[test]

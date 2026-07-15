@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::exif::ExifInfo;
 
-use super::step::{build_regex_cache, NamePair, RegexCache, RenameStep, StepCtx};
+use super::step::{NamePair, RegexCache, RenameStep, StepCtx, build_regex_cache};
 
 /// レシピ内の 1 ステップ（有効/無効フラグ付き）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

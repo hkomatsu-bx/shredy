@@ -6,7 +6,7 @@ use crate::group::group_by_key;
 use crate::io::FileReader;
 use crate::model::{DuplicateGroup, FileEntry};
 use crate::path::to_nfc;
-use crate::progress::{is_cancelled, Cancel, Phase, ProgressEvent, ProgressTx};
+use crate::progress::{Cancel, Phase, ProgressEvent, ProgressTx, is_cancelled};
 
 use super::GroupingStrategy;
 

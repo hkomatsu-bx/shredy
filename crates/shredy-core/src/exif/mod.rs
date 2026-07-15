@@ -175,11 +175,7 @@ fn gps_coord(exif: &Exif, coord_tag: Tag, ref_tag: Tag, negative_ref: char) -> O
 /// 度分秒を十進度へ変換する（`negative` で南緯・西経を負にする）。
 fn dms_to_decimal(deg: f64, min: f64, sec: f64, negative: bool) -> f64 {
     let value = deg + min / 60.0 + sec / 3600.0;
-    if negative {
-        -value
-    } else {
-        value
-    }
+    if negative { -value } else { value }
 }
 
 /// EXIF フィールドを文字列化する（ASCII は生バイトから NUL/空白を除去・空は `None`）。
@@ -231,17 +227,21 @@ mod tests {
     #[test]
     fn is_present_reflects_any_field() {
         assert!(!ExifInfo::default().is_present());
-        assert!(ExifInfo {
-            model: Some("X100V".into()),
-            ..Default::default()
-        }
-        .is_present());
+        assert!(
+            ExifInfo {
+                model: Some("X100V".into()),
+                ..Default::default()
+            }
+            .is_present()
+        );
         // gps は命名トークンでないため is_present に含めない（GPS だけの画像は rename 対象外）。
-        assert!(!ExifInfo {
-            gps: Some("35.0, 139.0".into()),
-            ..Default::default()
-        }
-        .is_present());
+        assert!(
+            !ExifInfo {
+                gps: Some("35.0, 139.0".into()),
+                ..Default::default()
+            }
+            .is_present()
+        );
     }
 
     #[test]

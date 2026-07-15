@@ -11,7 +11,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
-use crate::exif::{format_datetime, ExifDateFormat, ExifInfo};
+use crate::exif::{ExifDateFormat, ExifInfo, format_datetime};
 
 /// 連番の付加位置。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,10 +263,10 @@ pub(crate) fn build_regex_cache<'a>(steps: impl Iterator<Item = &'a RenameStep>)
             if pattern.is_empty() {
                 continue;
             }
-            if !cache.contains_key(pattern) {
-                if let Ok(re) = Regex::new(pattern) {
-                    cache.insert(pattern.clone(), re);
-                }
+            if !cache.contains_key(pattern)
+                && let Ok(re) = Regex::new(pattern)
+            {
+                cache.insert(pattern.clone(), re);
             }
         }
     }

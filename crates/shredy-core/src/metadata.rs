@@ -193,10 +193,10 @@ fn xml_text_of(xml: &[u8], local: &str) -> Option<String> {
 
 /// `Option<String>` が非空なら (ラベル, 値) を追加する。
 fn push_field(fields: &mut Vec<(String, String)>, label: &str, value: Option<String>) {
-    if let Some(v) = value {
-        if !v.is_empty() {
-            fields.push((label.to_string(), v));
-        }
+    if let Some(v) = value
+        && !v.is_empty()
+    {
+        fields.push((label.to_string(), v));
     }
 }
 
@@ -287,12 +287,14 @@ mod tests {
         assert!(md.fields.contains(&("ページ数".into(), "3".into())));
         assert!(md.fields.contains(&("単語数".into(), "120".into())));
         // 作成/更新日時は JST へ変換し YYYY/MM/DD HH:MM:SS で表示（UTC 10:00 → JST 19:00）。
-        assert!(md
-            .fields
-            .contains(&("作成日時".into(), "2024/03/09 19:00:00".into())));
-        assert!(md
-            .fields
-            .contains(&("更新日時".into(), "2024/03/10 20:00:00".into())));
+        assert!(
+            md.fields
+                .contains(&("作成日時".into(), "2024/03/09 19:00:00".into()))
+        );
+        assert!(
+            md.fields
+                .contains(&("更新日時".into(), "2024/03/10 20:00:00".into()))
+        );
     }
 
     #[test]

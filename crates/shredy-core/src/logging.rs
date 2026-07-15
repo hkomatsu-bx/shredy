@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 use tracing::level_filters::LevelFilter;
 use tracing::subscriber::set_global_default;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::Registry;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::reload;
-use tracing_subscriber::Registry;
 
 use crate::error::{CoreError, Result};
 

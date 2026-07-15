@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use slint::ComponentHandle;
 
 use crate::config_io::{config_summary, initial_status, load_config};
-use crate::state::{lock, AppState};
+use crate::state::{AppState, lock};
 use crate::view::{refresh_rename, refresh_ui};
 use crate::wiring::{
     wire_actionbar, wire_cancel, wire_context, wire_delete, wire_exif, wire_folder_diff,

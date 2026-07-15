@@ -17,14 +17,14 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use crate::config::{AppConfig, CorruptScanGroups, WrongExtensionGroups};
-use crate::path::{to_fs_path, LongPath};
-use crate::progress::{is_cancelled, Cancel, Phase, ProgressEvent, ProgressTx};
-use crate::scan::{has_system_component, is_system_name, normalize_roots, MAX_DEPTH};
+use crate::path::{LongPath, to_fs_path};
+use crate::progress::{Cancel, Phase, ProgressEvent, ProgressTx, is_cancelled};
+use crate::scan::{MAX_DEPTH, has_system_component, is_system_name, normalize_roots};
 
 use magic::{
     corrupt_group_for_ext, detect_signature, signature_matches_ext, wrong_ext_group_for_ext,
 };
-pub use temp::{classify_temp, TempCategory};
+pub use temp::{TempCategory, classify_temp};
 
 /// 走査時に読み込むファイル先頭バイト数（マジックバイト判定用）。
 const HEADER_READ_LEN: u64 = magic::HEADER_LEN as u64;
@@ -177,7 +177,8 @@ impl UtilityScanner {
         &self,
         root: &LongPath,
         follow_links: bool,
-    ) -> walkdir::FilterEntry<walkdir::IntoIter, impl FnMut(&walkdir::DirEntry) -> bool> {
+    ) -> walkdir::FilterEntry<walkdir::IntoIter, impl FnMut(&walkdir::DirEntry) -> bool + use<>>
+    {
         let exclude_system = self.cfg.exclude_system_folders;
         walkdir::WalkDir::new(root.as_path())
             .max_depth(MAX_DEPTH)
@@ -204,10 +205,8 @@ impl UtilityScanner {
             }
             let fileless = self.empty_recurse(root.as_path(), 0, &mut items, progress, cancel);
             // ルート自身が（再帰的に）空 → ルートを空フォルダとして報告する。
-            if fileless {
-                if let Some(item) = dir_item(root.as_path()) {
-                    items.push(item);
-                }
+            if fileless && let Some(item) = dir_item(root.as_path()) {
+                items.push(item);
             }
         }
         items
@@ -394,12 +393,12 @@ impl UtilityScanner {
                         continue;
                     }
                 };
-                if size >= self.cfg.large_file_threshold {
-                    if let Some(item) = file_item(ent.path(), size) {
-                        items.push(item);
-                        count += 1;
-                        report_progress(progress, count);
-                    }
+                if size >= self.cfg.large_file_threshold
+                    && let Some(item) = file_item(ent.path(), size)
+                {
+                    items.push(item);
+                    count += 1;
+                    report_progress(progress, count);
                 }
             }
         }

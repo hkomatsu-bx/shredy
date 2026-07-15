@@ -7,7 +7,7 @@
 
 use std::time::SystemTime;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use shredy_core::{DuplicateGroup, FileEntry, FileSize, KeepFileRule, LockSet, LongPath, Selector};
 
 /// `groups` 個 × `per_group` 件の合成重複グループを作る。

@@ -335,7 +335,7 @@ mod tests {
         let mut plc = Vec::new();
         plc.extend_from_slice(&0u32.to_le_bytes()); // CP[0]
         plc.extend_from_slice(&char_count.to_le_bytes()); // CP[1]
-                                                          // PCD: flags(2)=0, FcCompressed(4), prm(2)=0。
+        // PCD: flags(2)=0, FcCompressed(4), prm(2)=0。
         plc.extend_from_slice(&0u16.to_le_bytes());
         let fc = (text_offset as u32) * 2; // 圧縮: byteOffset = fc/2
         let fc_compressed = fc | 0x4000_0000;

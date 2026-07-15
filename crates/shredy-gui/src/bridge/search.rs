@@ -8,8 +8,8 @@ use std::sync::{Arc, RwLock};
 
 use shredy_core::path::LongPath;
 use shredy_core::{
-    make_strategy, Cancel, CompareMethod, DuplicateGroup, FileEntry, FileReader, HashCache,
-    ProgressTx, ScanConfig, SearchEngine,
+    Cancel, CompareMethod, DuplicateGroup, FileEntry, FileReader, HashCache, ProgressTx,
+    ScanConfig, SearchEngine, make_strategy,
 };
 
 /// 対象フォルダを走査して重複グループを返す（走査 → 比較）。

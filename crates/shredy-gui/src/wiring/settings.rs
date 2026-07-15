@@ -13,7 +13,7 @@ use shredy_core::{
     OfficeSimilarityLevel,
 };
 
-use crate::state::{lock, save_config, AppState};
+use crate::state::{AppState, lock, save_config};
 use crate::view::{refresh_status_flags, refresh_summary, refresh_ui};
 use crate::{AppWindow, SettingsView};
 

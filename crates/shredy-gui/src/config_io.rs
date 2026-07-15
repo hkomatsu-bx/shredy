@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use shredy_core::config::{TargetFolder, CONFIG_FILE_NAME};
+use shredy_core::config::{CONFIG_FILE_NAME, TargetFolder};
 use shredy_core::{AppConfig, LongPath};
 
 /// 設定をロードする（実行フォルダの `shredy.config`、無ければ既定）。

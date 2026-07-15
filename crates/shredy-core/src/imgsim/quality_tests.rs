@@ -15,7 +15,7 @@ use std::time::SystemTime;
 
 use image::{DynamicImage, ImageFormat, RgbImage};
 
-use super::{phash, ImageSimilarityStrategy};
+use super::{ImageSimilarityStrategy, phash};
 use crate::io::MockFs;
 use crate::model::{FileEntry, FileSize};
 use crate::path::LongPath;
