@@ -8,7 +8,7 @@ use shredy_core::{DuplicateGroup, LongPath};
 
 use shredy_gui::bridge::{preview, selection};
 
-use crate::state::{lock, AppState};
+use crate::state::{AppState, lock};
 use crate::view::{file_path_at, open_in_explorer, open_with_default, refresh_ui, sync_highlight};
 use crate::{AppWindow, FormatField};
 

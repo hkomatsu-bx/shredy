@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use crate::group::group_by_hash;
 use crate::io::FileReader;
 use crate::model::{DuplicateGroup, FileEntry, FileHash};
-use crate::progress::{is_cancelled, Cancel, Phase, ProgressEvent, ProgressTx};
+use crate::progress::{Cancel, Phase, ProgressEvent, ProgressTx, is_cancelled};
 
 use super::GroupingStrategy;
 

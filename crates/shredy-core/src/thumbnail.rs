@@ -15,7 +15,7 @@ use std::time::SystemTime;
 use walkdir::WalkDir;
 
 use crate::path::LongPath;
-use crate::progress::{is_cancelled, Cancel};
+use crate::progress::{Cancel, is_cancelled};
 use crate::scan::MAX_DEPTH;
 use crate::utility::UtilityItem;
 
@@ -85,10 +85,10 @@ pub fn find_system_thumbcaches() -> Vec<LongPath> {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        if is_thumbcache_name(&name) {
-            if let Ok(lp) = LongPath::new(entry.path()) {
-                out.push(lp);
-            }
+        if is_thumbcache_name(&name)
+            && let Ok(lp) = LongPath::new(entry.path())
+        {
+            out.push(lp);
         }
     }
     out

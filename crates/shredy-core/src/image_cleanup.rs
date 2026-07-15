@@ -22,8 +22,8 @@ use img_parts::{Bytes, DynImage, ImageEXIF};
 use walkdir::WalkDir;
 
 use crate::error::{CoreError, Result};
-use crate::path::{to_fs_path, LongPath};
-use crate::progress::{is_cancelled, Cancel};
+use crate::path::{LongPath, to_fs_path};
+use crate::progress::{Cancel, is_cancelled};
 use crate::scan::MAX_DEPTH;
 use crate::utility::UtilityItem;
 

@@ -20,7 +20,7 @@ use shredy_gui::viewmodel::SelectionState;
 
 use crate::cache_io;
 use crate::config_io::resolve_roots;
-use crate::state::{lock, AppState};
+use crate::state::{AppState, lock};
 use crate::view::{dispatch_ui, done_status, phase_label, refresh_ui};
 use crate::{AppWindow, ListRow};
 

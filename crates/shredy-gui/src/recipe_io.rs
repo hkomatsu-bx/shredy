@@ -25,15 +25,15 @@ fn recipes_path(dir: &Path) -> PathBuf {
 pub(crate) fn load_recipes(dir: &Path) -> BTreeMap<String, Vec<RecipeStep>> {
     let path = recipes_path(dir);
     // 読み込み前にサイズを検査（巨大ファイルでメモリを使い果たさない）。
-    if let Ok(meta) = std::fs::metadata(&path) {
-        if meta.len() > MAX_RECIPES_FILE_BYTES {
-            tracing::warn!(
-                path = %path.display(),
-                bytes = meta.len(),
-                "レシピファイルが大きすぎます（空として続行）"
-            );
-            return BTreeMap::new();
-        }
+    if let Ok(meta) = std::fs::metadata(&path)
+        && meta.len() > MAX_RECIPES_FILE_BYTES
+    {
+        tracing::warn!(
+            path = %path.display(),
+            bytes = meta.len(),
+            "レシピファイルが大きすぎます（空として続行）"
+        );
+        return BTreeMap::new();
     }
     let Ok(text) = std::fs::read_to_string(&path) else {
         return BTreeMap::new(); // 未作成は正常（初回起動）。

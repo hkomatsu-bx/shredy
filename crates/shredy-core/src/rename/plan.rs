@@ -11,8 +11,8 @@ use walkdir::WalkDir;
 
 use crate::exif::{ext_supports_exif, read_exif};
 use crate::path::LongPath;
-use crate::progress::{is_cancelled, Cancel};
-use crate::scan::{matches_wildcard, MAX_DEPTH};
+use crate::progress::{Cancel, is_cancelled};
+use crate::scan::{MAX_DEPTH, matches_wildcard};
 
 use super::recipe::RenameRecipe;
 use super::step::NamePair;
@@ -401,10 +401,11 @@ mod tests {
         );
         assert!(plan.has_conflicts());
         assert_eq!(plan.conflict_count(), 2);
-        assert!(plan
-            .entries
-            .iter()
-            .all(|e| e.issue == Some(RenameIssue::Duplicate)));
+        assert!(
+            plan.entries
+                .iter()
+                .all(|e| e.issue == Some(RenameIssue::Duplicate))
+        );
     }
 
     #[test]

@@ -9,9 +9,9 @@ use slint::ComponentHandle;
 
 use shredy_gui::bridge::selection;
 
-use crate::state::{lock, AppState};
-use crate::view::{file_path_at, refresh_ui, sync_highlight};
 use crate::AppWindow;
+use crate::state::{AppState, lock};
+use crate::view::{file_path_at, refresh_ui, sync_highlight};
 
 use super::{apply_row_change, with_ui};
 

@@ -16,14 +16,14 @@ use std::thread;
 use slint::ComponentHandle;
 
 use shredy_core::progress::new_cancel;
-use shredy_core::{build_plan, execute_rename, parse_filters, LongPath, RenameMode, RenameTargets};
+use shredy_core::{LongPath, RenameMode, RenameTargets, build_plan, execute_rename, parse_filters};
 
 use shredy_gui::bridge::rename as br;
 
-use crate::recipe_io::save_recipes;
-use crate::state::{lock, AppState};
-use crate::view::{dispatch_ui, refresh_rename};
 use crate::AppWindow;
+use crate::recipe_io::save_recipes;
+use crate::state::{AppState, lock};
+use crate::view::{dispatch_ui, refresh_rename};
 
 use super::with_ui;
 
@@ -366,10 +366,10 @@ fn wire_recipe_load_delete(ui: &AppWindow, state: &Arc<Mutex<AppState>>) {
         ui.on_recipe_delete(move |name| {
             with_ui(&ui_weak, |ui| {
                 let mut st = lock(&state);
-                if st.recipes.remove(name.as_str()).is_some() {
-                    if let Err(e) = save_recipes(&st.config_dir, &st.recipes) {
-                        ui.set_status_text(e.into());
-                    }
+                if st.recipes.remove(name.as_str()).is_some()
+                    && let Err(e) = save_recipes(&st.config_dir, &st.recipes)
+                {
+                    ui.set_status_text(e.into());
                 }
                 refresh_rename(&ui, &st);
             });
@@ -475,7 +475,7 @@ fn perform_rename_preview(ui: &AppWindow, state: &Arc<Mutex<AppState>>) {
             return;
         }
     };
-    let gen = {
+    let current_gen = {
         let mut st = lock(state);
         st.rename_preview_gen += 1;
         st.rename_preview_gen
@@ -493,7 +493,7 @@ fn perform_rename_preview(ui: &AppWindow, state: &Arc<Mutex<AppState>>) {
         let conflicts = plan.conflict_count();
         dispatch_ui(&ui_weak, move |ui| {
             let mut st = lock(&state);
-            if st.rename_preview_gen != gen {
+            if st.rename_preview_gen != current_gen {
                 return; // より新しい計算が開始済み＝この結果は破棄（インジケータも維持）。
             }
             st.rename_plan = Some(plan);

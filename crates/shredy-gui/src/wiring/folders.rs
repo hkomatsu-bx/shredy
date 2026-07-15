@@ -7,10 +7,10 @@ use std::sync::{Arc, Mutex};
 
 use slint::ComponentHandle;
 
-use crate::config_io::{add_target_folders, batch_add_status};
-use crate::state::{lock, save_config, AppState};
-use crate::view::refresh_folders;
 use crate::AppWindow;
+use crate::config_io::{add_target_folders, batch_add_status};
+use crate::state::{AppState, lock, save_config};
+use crate::view::refresh_folders;
 
 use super::with_ui;
 

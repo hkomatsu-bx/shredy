@@ -122,15 +122,15 @@ pub fn execute_rename(plan: &RenamePlan, mode: &RenameMode) -> (RenameReport, Re
     targets.sort_by_key(|e| std::cmp::Reverse(e.path.as_path().components().count()));
 
     // 出力先（Copy/Move）は事前に作成する。失敗すれば全件失敗扱い。
-    if let RenameMode::Copy { dest } | RenameMode::Move { dest } = mode {
-        if let Err(e) = fs::create_dir_all(dest.fs_path()) {
-            for entry in &targets {
-                report
-                    .failed
-                    .push((entry.path.clone(), format!("出力先を作成できません: {e}")));
-            }
-            return (report, undo);
+    if let RenameMode::Copy { dest } | RenameMode::Move { dest } = mode
+        && let Err(e) = fs::create_dir_all(dest.fs_path())
+    {
+        for entry in &targets {
+            report
+                .failed
+                .push((entry.path.clone(), format!("出力先を作成できません: {e}")));
         }
+        return (report, undo);
     }
 
     for entry in targets {
@@ -283,7 +283,7 @@ fn fs_path(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use crate::progress::new_cancel;
-    use crate::rename::plan::{build_plan, RenameTargets};
+    use crate::rename::plan::{RenameTargets, build_plan};
     use crate::rename::recipe::{RecipeStep, RenameRecipe};
     use crate::rename::step::{RenameStep, SeqPosition};
 

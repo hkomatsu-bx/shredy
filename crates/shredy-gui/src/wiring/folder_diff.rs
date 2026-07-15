@@ -10,9 +10,9 @@ use slint::ComponentHandle;
 use shredy_core::FolderDiffScanner;
 use shredy_gui::bridge::folder_diff::status_text;
 
-use crate::state::{lock, AppState};
-use crate::view::{dispatch_ui, refresh_folder_diff};
 use crate::AppWindow;
+use crate::state::{AppState, lock};
+use crate::view::{dispatch_ui, refresh_folder_diff};
 
 use super::with_ui;
 

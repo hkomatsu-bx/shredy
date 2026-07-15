@@ -7,7 +7,7 @@ A portable, Windows-only tool for organizing duplicate and similar files. It det
 - **Version:** 1.0.3
 - **Target:** Windows 11 (build 26100 or later, x64) only
 - **License:** GPL-3.0-only
-- **Language:** Rust (edition 2021 / rust 1.97+)
+- **Language:** Rust (edition 2024 / rust 1.97+)
 
 > It depends on the Windows API for the Recycle Bin, `\\?\` long paths, reparse-point detection, `explorer.exe` integration, and more, so it **cannot be built or run on other operating systems**.
 

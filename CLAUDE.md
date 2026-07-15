@@ -14,7 +14,7 @@ Windows 専用ポータブル重複・類似ファイル整理ツール。GUI（
 
 ## ビルド・テスト・実行
 
-Cargo ワークスペース（edition 2021 / rust 1.97+）。4 クレート：`shredy-sys`（Win 低レベル API）→ `shredy-core`（中核エンジン）→ `shredy-cli`（`shredy.exe`）/ `shredy-gui`（`shredy-gui.exe`＋lib。ロジックは lib 側で単体テスト可）。
+Cargo ワークスペース（edition 2024 / rust 1.97+）。4 クレート：`shredy-sys`（Win 低レベル API）→ `shredy-core`（中核エンジン）→ `shredy-cli`（`shredy.exe`）/ `shredy-gui`（`shredy-gui.exe`＋lib。ロジックは lib 側で単体テスト可）。
 
 ```bash
 cargo build [--release]                                  # release は windows_subsystem=windows＋サイズ最適 profile（opt-level="s"/lto=fat/codegen-units=1/strip）

@@ -11,8 +11,8 @@ use walkdir::WalkDir;
 
 use crate::config::ScanConfig;
 use crate::model::{FileEntry, FileSize};
-use crate::path::{comp_keys, LongPath};
-use crate::progress::{is_cancelled, Cancel, Phase, ProgressEvent, ProgressTx};
+use crate::path::{LongPath, comp_keys};
+use crate::progress::{Cancel, Phase, ProgressEvent, ProgressTx, is_cancelled};
 
 /// 再帰深度の上限（NFR-5: シンボリックリンクループ防止）。
 pub const MAX_DEPTH: usize = 64;
@@ -134,15 +134,15 @@ fn passes_size_filters(size: u64, cfg: &ScanConfig) -> bool {
     if cfg.exclude_zero_byte && size == 0 {
         return false;
     }
-    if let Some(min) = cfg.min_size {
-        if size < min {
-            return false;
-        }
+    if let Some(min) = cfg.min_size
+        && size < min
+    {
+        return false;
     }
-    if let Some(max) = cfg.max_size {
-        if size > max {
-            return false;
-        }
+    if let Some(max) = cfg.max_size
+        && size > max
+    {
+        return false;
     }
     true
 }

@@ -23,7 +23,7 @@ mod partial_match;
 
 pub use content_hash::ContentHashStrategy;
 pub use metadata::{MetadataKind, MetadataStrategy};
-pub use partial_match::{PartialMatchStrategy, PARTIAL_READ_CAP};
+pub use partial_match::{PARTIAL_READ_CAP, PartialMatchStrategy};
 
 /// 候補ファイル群を重複グループへ束ねる戦略。
 pub trait GroupingStrategy: Send + Sync {

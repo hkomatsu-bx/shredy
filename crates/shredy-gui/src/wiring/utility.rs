@@ -16,8 +16,8 @@ use slint::ComponentHandle;
 
 use shredy_core::progress::{is_cancelled, new_cancel};
 use shredy_core::{
-    find_thumbnail_cache_items, DeleteMode, Deleter, FileOp, LockSet, LongPath, ProgressEvent,
-    RealFs, UtilityConfig, UtilityItem, UtilityKind, UtilityScanner,
+    DeleteMode, Deleter, FileOp, LockSet, LongPath, ProgressEvent, RealFs, UtilityConfig,
+    UtilityItem, UtilityKind, UtilityScanner, find_thumbnail_cache_items,
 };
 
 /// 削除/隔離ワーカーへ渡す設定スナップショット（ロック下で取得し即時解放）。
@@ -36,7 +36,7 @@ struct UtilOpSnapshot {
 use shredy_gui::bridge::util_select;
 
 use crate::config_io::resolve_roots;
-use crate::state::{lock, AppState};
+use crate::state::{AppState, lock};
 use crate::view::{dispatch_ui, open_in_explorer, page_to_kind, refresh_util, update_util_row};
 use crate::{AppWindow, Page};
 

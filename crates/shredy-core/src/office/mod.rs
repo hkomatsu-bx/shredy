@@ -16,7 +16,7 @@ use crate::io::FileReader;
 use crate::model::{DuplicateGroup, FileEntry, FileHash};
 #[cfg(test)]
 use crate::path::LongPath;
-use crate::progress::{is_cancelled, Cancel, Phase, ProgressEvent, ProgressTx};
+use crate::progress::{Cancel, Phase, ProgressEvent, ProgressTx, is_cancelled};
 use crate::strategy::GroupingStrategy;
 
 /// 1 ファイルの読み込み上限（256 MiB）。超過は除外しメモリを保護する。
@@ -223,12 +223,14 @@ mod tests {
     #[test]
     fn make_strategy_now_supports_office() {
         let cfg = ScanConfigBuilder::new().build();
-        assert!(crate::strategy::make_strategy(
-            crate::config::CompareMethod::OfficeSimilarity,
-            &cfg,
-            None
-        )
-        .is_some());
+        assert!(
+            crate::strategy::make_strategy(
+                crate::config::CompareMethod::OfficeSimilarity,
+                &cfg,
+                None
+            )
+            .is_some()
+        );
     }
 }
 

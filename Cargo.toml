@@ -2,7 +2,7 @@
 # 3 crate 構成（設計 Q1=B）: shredy-sys → shredy-core → shredy-cli
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/shredy-sys",
     "crates/shredy-core",
@@ -15,7 +15,7 @@ members = [
 # BUILDNUMBER は shredy-core/build.rs が git コミット数から自動採番する
 # （MAJOR.MINOR.REVISION はこの version 値がそのまま表示に使われる）。
 version = "1.0.3"
-edition = "2021"
+edition = "2024"
 rust-version = "1.97"
 # 本体ライセンス。GUI の Slint（GPL-3.0 or 商用）と画像の heic（AGPL-3.0 or 商用）を
 # それぞれ GPL/AGPL オプションで利用するため、本体も GPL-3.0 で配布する（詳細は LICENSE

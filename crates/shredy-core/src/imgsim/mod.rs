@@ -21,7 +21,7 @@ use crate::io::FileReader;
 use crate::model::{DuplicateGroup, FileEntry};
 #[cfg(test)]
 use crate::path::LongPath;
-use crate::progress::{is_cancelled, Cancel, Phase, ProgressEvent, ProgressTx};
+use crate::progress::{Cancel, Phase, ProgressEvent, ProgressTx, is_cancelled};
 use crate::strategy::GroupingStrategy;
 
 use bktree::BkTree;
@@ -308,12 +308,14 @@ mod tests {
     #[test]
     fn make_strategy_now_supports_image() {
         let cfg = crate::config::ScanConfigBuilder::new().build();
-        assert!(crate::strategy::make_strategy(
-            crate::config::CompareMethod::ImageSimilarity,
-            &cfg,
-            None
-        )
-        .is_some());
+        assert!(
+            crate::strategy::make_strategy(
+                crate::config::CompareMethod::ImageSimilarity,
+                &cfg,
+                None
+            )
+            .is_some()
+        );
     }
 }
 

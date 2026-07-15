@@ -459,11 +459,13 @@ mod tests {
             let f = default_form(m);
             assert!(make_step(&f).is_some(), "method {m} は空欄でも成立する");
         }
-        assert!(make_step(&RenameForm {
-            method: 99,
-            ..default_form(0)
-        })
-        .is_none());
+        assert!(
+            make_step(&RenameForm {
+                method: 99,
+                ..default_form(0)
+            })
+            .is_none()
+        );
     }
 
     #[test]

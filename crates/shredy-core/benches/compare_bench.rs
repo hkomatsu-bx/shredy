@@ -10,7 +10,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use shredy_core::progress::new_cancel;
 use shredy_core::{
     ContentHashStrategy, FileEntry, FileSize, GroupingStrategy, HashCache, LongPath, Method,

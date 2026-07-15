@@ -6,9 +6,9 @@ use slint::ComponentHandle;
 
 use shredy_gui::viewmodel::FilterMode;
 
-use crate::state::{lock, save_config, AppState};
-use crate::view::{refresh_summary, refresh_ui};
 use crate::AppWindow;
+use crate::state::{AppState, lock, save_config};
+use crate::view::{refresh_summary, refresh_ui};
 
 use super::with_ui;
 

@@ -15,7 +15,7 @@ pub(crate) mod plan;
 pub(crate) mod recipe;
 pub(crate) mod step;
 
-pub use execute::{execute_rename, RenameMode, RenameReport, RenameUndo, UndoReport};
-pub use plan::{build_plan, parse_filters, RenameEntry, RenameIssue, RenamePlan, RenameTargets};
+pub use execute::{RenameMode, RenameReport, RenameUndo, UndoReport, execute_rename};
+pub use plan::{RenameEntry, RenameIssue, RenamePlan, RenameTargets, build_plan, parse_filters};
 pub use recipe::{RecipeStep, RenameRecipe};
 pub use step::{CaseConvert, CaseTarget, NamePair, RenameStep, SeqPosition};
