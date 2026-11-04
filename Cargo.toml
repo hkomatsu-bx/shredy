@@ -35,7 +35,7 @@ sha2 = "0.11"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rayon = "1"
 # Office 類似度 (S7) — すべて純 Rust（xcopy 配布適合）
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 quick-xml = "0.41"
 cfb = "0.14"
 calamine = { version = "0.36", default-features = false }
